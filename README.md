@@ -1,21 +1,33 @@
-# SpectrePrism
+# Spectre Prism
 
-**TODO: Add description**
+`spectre_prism` owns cognitive provider and model selection configuration for
+Spectre. Its version 0.1.2 integration compiles the Stack-local `provider/2`
+and `model/2` DSL into immutable data.
 
 ## Installation
 
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed
-by adding `spectre_prism` to your list of dependencies in `mix.exs`:
+The project is distributed from GitHub:
 
 ```elixir
 def deps do
   [
-    {:spectre_prism, "~> 0.1.0"}
+    {:spectre_prism, github: "elchemista/spectre_prism"}
   ]
 end
 ```
 
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at <https://hexdocs.pm/spectre_prism>.
+## Stack
 
+```elixir
+defmodule MyApp.AI do
+  use Spectre.Stack
+
+  install Spectre.Prism do
+    provider :openrouter, MyApp.OpenRouter
+    model :fast, id: "small-model"
+  end
+end
+```
+
+Installation describes cognitive selection but does not start providers or
+authorize models for an Agent.
