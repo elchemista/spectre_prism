@@ -7,11 +7,20 @@ defmodule Spectre.Prism.StackContractTest.Stack do
 
   use Spectre.Stack, id: :prism_contract
 
-  install Spectre.Prism, policy: :balanced do
+  install Spectre.Prism, max_attempts: 3 do
     provider(:openrouter, Spectre.Prism.StackContractTest.OpenRouter)
     model(:fast, id: "small-model")
     model(:reasoning, id: "reasoning-model")
+    purpose(:route_classification, prefer: :fast)
+    default(:fast)
+    selector(Spectre.Prism.Selector.Rules)
   end
+end
+
+defmodule Spectre.Prism.StackContractTest.Agent do
+  @moduledoc false
+
+  use Spectre.Agent, stack: Spectre.Prism.StackContractTest.Stack
 end
 
 defmodule Spectre.Prism.StackContractTest do
@@ -21,8 +30,9 @@ defmodule Spectre.Prism.StackContractTest do
   alias Spectre.Stack.Contract.V1
   alias Spectre.Stack.Definition
   alias Spectre.Stack.Runtime
+  alias Spectre.Prism.StackContractTest.Agent
 
-  test "publishes a compatible V1 manifest without fake capabilities" do
+  test "publishes a compatible V1 manifest with the Prism binding" do
     assert {:ok, package} = V1.verify_installable(Spectre.Prism)
 
     assert package.id == :prism
@@ -30,27 +40,70 @@ defmodule Spectre.Prism.StackContractTest do
     assert package.contract == 1
     assert package.spectre == "~> 0.1.2"
     assert package.dsl == Spectre.Prism
-    assert package.provides == []
+    assert package.provides == [{:service, :prism}]
     assert package.operations == []
     assert package.actions == []
     assert package.resources == []
+    assert package.agent_extensions == [Spectre.Prism.Extension]
   end
 
   test "compiles providers and models inside a real Stack" do
     assert {:ok, installation} = Definition.installation(Stack, :prism)
 
     assert installation.config == %{
-             options: [policy: :balanced],
+             options: [max_attempts: 3],
              providers: [
                {:openrouter, Spectre.Prism.StackContractTest.OpenRouter}
              ],
              models: [
                {:fast, [id: "small-model"]},
                {:reasoning, [id: "reasoning-model"]}
-             ]
+             ],
+             levels: [],
+             purposes: [route_classification: [prefer: :fast]],
+             default: :fast,
+             selector: Spectre.Prism.Selector.Rules
            }
 
     assert Stack.__spectre_stack_manifest__() == Definition.manifest(Stack)
+  end
+
+  test "selecting the Stack activates executable Prism profiles without use Prism" do
+    assert {:ok, mount} = Spectre.Extension.fetch(Agent, :prism)
+    assert mount.module == Spectre.Prism.Extension
+
+    assert {:ok, config} = Spectre.Prism.config(Agent)
+    assert config.default == :fast
+    assert config.max_attempts == 3
+    assert config.selector == {Spectre.Prism.Selector.Rules, []}
+    assert config.purposes.route_classification == [prefer: :fast]
+
+    assert Enum.map(config.profiles, & &1.id) == [:fast, :reasoning]
+
+    assert Enum.at(config.profiles, 0).model ==
+             {Spectre.Prism.StackContractTest.OpenRouter, :complete, model: "small-model"}
+
+    assert Agent.__spectre_definition__().config[:prism] == config
+
+    assert {:ok, plan} = Spectre.Prompt.Plan.compose("classify", [], [:agent])
+
+    request =
+      Spectre.Inference.Request.new(
+        purpose: :route_classification,
+        plan: plan
+      )
+
+    context = %Spectre.Context{
+      agent: Agent,
+      input: Spectre.Input.new("classify"),
+      state: %Spectre.State{}
+    }
+
+    assert {:ok, selection} = Spectre.Prism.select(Agent, request, context)
+    assert selection.level == :fast
+
+    assert selection.model ==
+             {Spectre.Prism.StackContractTest.OpenRouter, :complete, model: "small-model"}
   end
 
   test "rejects duplicate provider and model identifiers independently" do
@@ -73,10 +126,10 @@ defmodule Spectre.Prism.StackContractTest do
              Spectre.Prism.compile([], duplicate_model, __ENV__)
   end
 
-  test "does not invent runtime resources" do
+  test "keeps SDK clients caller-owned while resolving the Prism service" do
     assert {:ok, []} = Runtime.child_specs(Stack)
 
-    assert {:error, {:unknown_stack_capability, :service, :prism}} =
-             Definition.resolve(Stack, :service, :prism)
+    assert {:ok, ref} = Definition.resolve(Stack, :service, :prism)
+    assert ref.package == :prism
   end
 end
