@@ -57,6 +57,13 @@ attempt limits remain fail-closed constraints. Provider clients and secrets
 are still supplied by the application; the compiled Stack contains only
 portable adapter configuration.
 
+With Spectre 0.1.3, that configuration is re-resolved for every
+`Spectre.Runtime.advance/2`. Prism selects inference capabilities inside the
+canonical Run step, while provider clients, adapter sessions, processes, and
+callbacks remain caller-owned and are never embedded in a `Spectre.Run`
+checkpoint. Inference remains synchronous in this release; async provider
+scheduling stays outside Prism's selector boundary.
+
 For an Agent-local configuration, `use Spectre.Prism` remains available:
 
 ```elixir
