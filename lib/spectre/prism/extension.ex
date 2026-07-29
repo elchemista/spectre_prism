@@ -184,14 +184,7 @@ defmodule Spectre.Prism.Extension do
           {:ok, term()} | {:error, term()}
   defp configured_model_adapter(id, opts, providers) do
     provider_id = Keyword.get(opts, :provider)
-
-    provider =
-      cond do
-        provider_id -> List.keyfind(providers, provider_id, 0)
-        length(providers) == 1 -> hd(providers)
-        true -> nil
-      end
-
+    provider = configured_provider(provider_id, providers)
     model_id = Keyword.get(opts, :id, id)
 
     case {Keyword.get(opts, :adapter), Keyword.get(opts, :module), provider} do
@@ -214,6 +207,13 @@ defmodule Spectre.Prism.Extension do
         {:error, {:ambiguous_prism_model_provider, id}}
     end
   end
+
+  @spec configured_provider(term(), [{term(), term()}]) :: {term(), term()} | nil
+  defp configured_provider(provider_id, providers) when not is_nil(provider_id),
+    do: List.keyfind(providers, provider_id, 0)
+
+  defp configured_provider(nil, [provider]), do: provider
+  defp configured_provider(nil, _providers), do: nil
 
   @spec provider_model(term(), term()) :: {:ok, term()} | {:error, term()}
   defp provider_model(module, model_id) when is_atom(module) and not is_nil(module),
@@ -280,11 +280,17 @@ defmodule Spectre.Prism.Extension do
 
     [:minimum, :minimum_level, :prefer, :preferred_level]
     |> Enum.find_value(:ok, fn key ->
-      case Keyword.get(constraints, key) do
-        nil -> false
-        level -> if MapSet.member?(ids, level), do: false, else: {:error, {:unknown_level, level}}
-      end
+      constraints
+      |> Keyword.get(key)
+      |> validate_constraint_level(ids)
     end)
+  end
+
+  @spec validate_constraint_level(term(), MapSet.t()) :: false | {:error, term()}
+  defp validate_constraint_level(nil, _ids), do: false
+
+  defp validate_constraint_level(level, ids) do
+    if MapSet.member?(ids, level), do: false, else: {:error, {:unknown_level, level}}
   end
 
   @spec selector(term()) :: {:ok, {module(), keyword()}} | {:error, term()}

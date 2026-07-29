@@ -99,8 +99,15 @@ end
 defmodule Spectre.Prism.RuntimeTest do
   use ExUnit.Case, async: true
 
+  alias Spectre.Context
+  alias Spectre.Inference.Request
+  alias Spectre.Input
   alias Spectre.Prism.RuntimeTest.Agent
   alias Spectre.Prism.RuntimeTest.FallbackAgent
+  alias Spectre.Prism.RuntimeTest.Model
+  alias Spectre.Prism.Selector.Rules
+  alias Spectre.Prompt.Plan
+  alias Spectre.State
 
   test "intelligence selects a semantic level per inference" do
     assert {:ok, result} = Spectre.ask(Agent, "fast", test_pid: self())
@@ -143,25 +150,25 @@ defmodule Spectre.Prism.RuntimeTest do
 
   test "hard modality and privacy constraints fail clearly" do
     {:ok, config} = Spectre.Prism.config(Agent)
-    {:ok, plan} = Spectre.Prompt.Plan.compose("audio", [], [:agent])
+    {:ok, plan} = Plan.compose("audio", [], [:agent])
 
     request =
-      Spectre.Inference.Request.new(%{
+      Request.new(%{
         purpose: :multimodal_understanding,
         plan: plan,
         modalities: [:audio],
         constraints: [privacy: :local_only],
-        metadata: %{agent_model: {Spectre.Prism.RuntimeTest.Model, :complete, []}}
+        metadata: %{agent_model: {Model, :complete, []}}
       })
 
-    ctx = %Spectre.Context{
+    ctx = %Context{
       agent: Agent,
-      input: Spectre.Input.new(""),
-      state: %Spectre.State{}
+      input: Input.new(""),
+      state: %State{}
     }
 
     assert {:error, {:no_compatible_inference_profile, constraints}} =
-             Spectre.Prism.Selector.Rules.select(
+             Rules.select(
                request,
                config.profiles,
                ctx,

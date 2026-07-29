@@ -3,9 +3,11 @@ defmodule Spectre.Prism.Profile do
   Builder for the neutral `Spectre.Inference.Profile` type.
   """
 
+  alias Spectre.Inference.Profile
+
   @standard_ranks %{fast: 10, balanced: 20, deep: 30}
 
-  @spec new(term(), keyword()) :: Spectre.Inference.Profile.t()
+  @spec new(term(), keyword()) :: Profile.t()
   def new(id, opts) when is_list(opts) do
     rank = Keyword.get(opts, :rank, Map.get(@standard_ranks, id))
 
@@ -15,7 +17,7 @@ defmodule Spectre.Prism.Profile do
 
     defaults = tier_defaults(id)
 
-    Spectre.Inference.Profile.new(%{
+    Profile.new(%{
       id: id,
       rank: rank,
       model: Keyword.fetch!(opts, :model),
