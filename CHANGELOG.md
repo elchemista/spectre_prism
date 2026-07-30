@@ -4,6 +4,14 @@ All notable changes to Spectre Prism are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-07-30
+
+### Changed
+
+- Raised the library and Stack manifest requirement to Spectre 0.1.5.
+- Verified Prism selection inside core-owned Runs without moving provider
+  scheduling or lifecycle ownership into Prism.
+
 ## [0.1.4] - 2026-07-30
 
 ### Changed
@@ -23,5 +31,6 @@ All notable changes to Spectre Prism are documented in this file.
 - Asynchronous provider scheduling and continuity-plane lifecycle remain later
   migration phases.
 
-[Unreleased]: https://github.com/elchemista/spectre_prism/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/elchemista/spectre_prism/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/elchemista/spectre_prism/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/elchemista/spectre_prism/compare/v0.1.3...v0.1.4

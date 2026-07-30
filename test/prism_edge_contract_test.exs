@@ -22,7 +22,7 @@ defmodule Spectre.Prism.EdgeContractTest do
   @provider Spectre.Prism.EdgeContractTest.Provider
 
   test "package compiler rejects duplicate and ambiguous declarations" do
-    assert Spectre.Prism.version() == "0.1.4"
+    assert Spectre.Prism.version() == "0.1.5"
 
     assert {:error, {:duplicate_prism_level, :fast}} =
              compile_stack("""

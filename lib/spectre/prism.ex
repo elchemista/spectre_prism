@@ -9,13 +9,13 @@ defmodule Spectre.Prism do
 
   alias Spectre.Stack.DSL
 
-  @version "0.1.4"
+  @version "0.1.5"
 
   use Spectre.Stack.Installable,
     id: :prism,
     version: @version,
     contract: 1,
-    spectre: "~> 0.1.4",
+    spectre: "~> 0.1.5",
     provides: [{:service, :prism}],
     agent_extensions: [Spectre.Prism.Extension],
     dsl: __MODULE__
