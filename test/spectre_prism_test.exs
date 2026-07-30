@@ -47,24 +47,27 @@ defmodule Spectre.Prism.StackContractTest do
   alias Spectre.Context
   alias Spectre.Inference.Request
   alias Spectre.Input
+  alias Spectre.Instance
   alias Spectre.Prism.StackContractTest.Agent
   alias Spectre.Prism.StackContractTest.OpenRouter
   alias Spectre.Prism.StackContractTest.Stack
   alias Spectre.Prompt.Plan
   alias Spectre.Run
   alias Spectre.Run.Boundary
+  alias Spectre.Run.Ref
   alias Spectre.Runtime, as: SpectreRuntime
   alias Spectre.Stack.Contract.V1
   alias Spectre.Stack.Definition
   alias Spectre.Stack.Runtime
+  alias Spectre.Turn
 
   test "publishes a compatible V1 manifest with the Prism binding" do
     assert {:ok, package} = V1.verify_installable(Spectre.Prism)
 
     assert package.id == :prism
-    assert package.version == "0.1.3"
+    assert package.version == "0.1.4"
     assert package.contract == 1
-    assert package.spectre == "~> 0.1.3"
+    assert package.spectre == "~> 0.1.4"
     assert package.dsl == Spectre.Prism
     assert package.provides == [{:service, :prism}]
     assert package.operations == []
@@ -179,5 +182,63 @@ defmodule Spectre.Prism.StackContractTest do
     assert_receive {:prism_run_provider, "small-model"}
     assert boundary_run.result.metadata.inference.selection.level == :fast
     assert {:ok, _checkpoint} = Run.checkpoint(boundary_run)
+  end
+
+  test "the core Instance schedules multiple Prism-backed Runs without a Prism runtime" do
+    supervisor =
+      start_supervised!({DynamicSupervisor, strategy: :one_for_one})
+
+    subject = "prism-instance-#{System.unique_integer([:positive])}"
+
+    assert {:ok, instance} =
+             Spectre.instance(supervisor, Agent, subject, idle: false)
+
+    test_pid = self()
+
+    tasks =
+      for _index <- 1..2 do
+        Task.async(fn -> Spectre.turn(instance, "run", test_pid: test_pid) end)
+      end
+
+    turns =
+      tasks
+      |> Task.await_many(5_000)
+      |> Enum.map(fn
+        {:ok,
+         %Turn{
+           observable: {:reply, "reply from small-model", %Ref{} = ref}
+         }} ->
+          ref
+      end)
+
+    assert_receive {:prism_run_provider, "small-model"}
+    assert_receive {:prism_run_provider, "small-model"}
+    assert length(Enum.uniq_by(turns, & &1.run_id)) == 2
+
+    assert_eventually(fn ->
+      info = Instance.info(instance)
+
+      map_size(info.runs) == 2 and info.ready == [] and
+        is_nil(info.active_run) and info.invocations == %{} and
+        Enum.all?(info.runs, fn {_id, run} -> run.status == :complete end)
+    end)
+
+    assert Spectre.state(instance).revision == 2
+
+    assert [{_id, ^instance, :worker, [Instance]}] =
+             DynamicSupervisor.which_children(supervisor)
+  end
+
+  defp assert_eventually(fun, attempts \\ 100)
+
+  defp assert_eventually(fun, 0), do: assert(fun.())
+
+  defp assert_eventually(fun, attempts) do
+    if fun.() do
+      :ok
+    else
+      Process.sleep(10)
+      assert_eventually(fun, attempts - 1)
+    end
   end
 end
