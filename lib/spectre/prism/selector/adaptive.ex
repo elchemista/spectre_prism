@@ -36,7 +36,7 @@ defmodule Spectre.Prism.Selector.Adaptive do
   @spec adapt_preference(Spectre.Inference.Request.t(), list(), Config.t()) ::
           Spectre.Inference.Request.t()
   defp adapt_preference(request, profiles, config) do
-    constraints = Selector.constraints(request, config)
+    %Constraints{} = constraints = Selector.constraints(request, config)
 
     preferred =
       cond do
