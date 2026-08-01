@@ -16,8 +16,26 @@ type, and struct contract.
 
 - `Spectre.Prism`
   - functions: `config/1`, `select/3`, `version/0`
-  - macros: `default/1`, `level/2`, `prism/1`, `purpose/2`, `selector/1`, `selector/2`
+  - macros: `default/1`, `level/2`, `prism/1`, `provider/2`, `provider/3`, `purpose/2`, `selector/1`, `selector/2`
+- `Spectre.Prism.Adapter`
+  - callbacks: `catalog/0`
+- `Spectre.Prism.Adapter.Error`
+- `Spectre.Prism.Adapter.Transport`
+  - callbacks: `request/5`
+- `Spectre.Prism.Adapters`
+  - functions: `built_ins/0`
+- `Spectre.Prism.Adapters.OpenAI`
+  - functions: `complete/1`, `complete/2`, `complete_plan/2`, `download/1`, `download/2`, `embed/1`, `embed/2`, `load/1`, `load/2`
+- `Spectre.Prism.Adapters.OpenRouter`
+  - functions: `complete/1`, `complete/2`, `complete_plan/2`, `download/1`, `download/2`, `embed/1`, `embed/2`, `load/1`, `load/2`
+- `Spectre.Prism.Adapters.Ollama`
+  - functions: `complete/1`, `complete/2`, `complete_plan/2`, `download/1`, `download/2`, `embed/1`, `embed/2`, `load/1`, `load/2`
+- `Spectre.Prism.Adapters.Gemini`
+  - functions: `complete/1`, `complete/2`, `complete_plan/2`, `download/1`, `download/2`, `embed/1`, `embed/2`, `load/1`, `load/2`
 - `Spectre.Prism.Config`
 - `Spectre.Prism.Profile`
+- `Spectre.Prism.Registry`
+  - functions: `build/1`, `classifier/1`, `embedding/1`, `fetch/2`, `new/0`, `profiles/1`, `register/3`, `register/4`, `register!/3`, `register!/4`
+- `Spectre.Prism.Registry.Registration`
 - `Spectre.Prism.Selector.Adaptive`
 - `Spectre.Prism.Selector.Rules`

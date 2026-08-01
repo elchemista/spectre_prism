@@ -31,6 +31,8 @@ defmodule Spectre.Prism do
       import Spectre.Prism,
         only: [
           prism: 1,
+          provider: 2,
+          provider: 3,
           level: 2,
           purpose: 2,
           default: 1,
@@ -50,6 +52,23 @@ defmodule Spectre.Prism do
   Groups cognitive profile declarations on an Agent.
   """
   defmacro prism(do: block), do: block
+
+  @doc """
+  Declares a provider adapter on an Agent-local Prism configuration.
+
+  The adapter module implements `Spectre.Prism.Adapter`. Optional provider
+  parameters are merged into every model, classifier, and embedding call.
+  """
+  defmacro provider(id, adapter, opts \\ []) do
+    id = expand_value(id, __CALLER__)
+    adapter = Macro.expand(adapter, __CALLER__)
+    opts = expand_value(opts, __CALLER__)
+    declaration = {id, adapter, opts}
+
+    quote do
+      @spectre_prism_providers unquote(Macro.escape(declaration))
+    end
+  end
 
   @doc """
   Declares one semantic capability level.
@@ -130,7 +149,7 @@ defmodule Spectre.Prism do
   def compile(opts, block, caller) do
     declarations =
       DSL.compile!(block, caller,
-        provider: 2,
+        provider: [2, 3],
         model: 2,
         level: 2,
         purpose: 2,
@@ -138,7 +157,7 @@ defmodule Spectre.Prism do
         selector: [1, 2]
       )
 
-    providers = select(declarations, :provider)
+    providers = select_providers(declarations)
     models = select(declarations, :model)
     levels = select(declarations, :level)
     purposes = select(declarations, :purpose)
@@ -166,6 +185,16 @@ defmodule Spectre.Prism do
   defp select(declarations, kind) do
     for {^kind, [id, configuration]} <- declarations,
         do: {id, configuration}
+  end
+
+  @spec select_providers([{atom(), [term()]}]) :: [{term(), term()}]
+  defp select_providers(declarations) do
+    for {:provider, args} <- declarations do
+      case args do
+        [id, configuration] -> {id, configuration}
+        [id, adapter, opts] -> {id, {adapter, opts}}
+      end
+    end
   end
 
   @spec unique_ids([{term(), term()}], atom()) :: :ok | {:error, term()}

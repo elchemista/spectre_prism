@@ -12,7 +12,7 @@ defmodule SpectrePrism.MixProject do
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      description: "Constraint-aware cognitive profile selection for Spectre agents.",
+      description: "Constraint-aware provider adapters and model selection for Spectre agents.",
       package: package(),
       dialyzer: [plt_add_apps: [:mix]],
       docs: docs(),
@@ -23,13 +23,14 @@ defmodule SpectrePrism.MixProject do
 
   def application do
     [
-      extra_applications: [:logger]
+      extra_applications: [:logger, :inets, :ssl]
     ]
   end
 
   defp deps do
     [
       spectre_dep(),
+      {:jason, "~> 1.4"},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}

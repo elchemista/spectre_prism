@@ -4,6 +4,24 @@ All notable changes to Spectre Prism are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Extended the existing Stack and Agent `provider` DSL to accept a Prism
+  adapter module plus optional parameters, and added an immutable registry that
+  compiles provider catalogs into Spectre intelligence profiles.
+- Added OpenAI Responses, OpenRouter Chat Completions, Ollama, and Gemini
+  Interactions adapters with fast, balanced, and deep model tiers.
+- Added hosted and local embedding integration for Spectre classifier encoding
+  and embedding-based routing.
+- Added an injectable HTTP transport, runtime-only credential resolution, and
+  sanitized retry-aware adapter errors.
+
+### Compatibility
+
+- Spectre's per-inference `intelligence: :fast | :balanced | :deep` contract is
+  unchanged. Existing two-argument `provider`, `model`, and `level`
+  declarations remain supported.
+
 ## [0.2.0] - 2026-08-01
 
 ### Changed

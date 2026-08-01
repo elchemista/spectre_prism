@@ -155,6 +155,31 @@ defmodule Spectre.Prism.StackContractTest do
              Spectre.Prism.compile([], duplicate_model, __ENV__)
   end
 
+  test "provider accepts an adapter module with optional parameters" do
+    declaration =
+      quote do
+        provider(
+          :openai,
+          Spectre.Prism.Adapters.OpenAI,
+          classifier: false,
+          embedding: false,
+          base_url: "https://gateway.example/v1"
+        )
+      end
+
+    assert {:ok, config} = Spectre.Prism.compile([], declaration, __ENV__)
+
+    assert config.providers == [
+             openai:
+               {Spectre.Prism.Adapters.OpenAI,
+                [
+                  classifier: false,
+                  embedding: false,
+                  base_url: "https://gateway.example/v1"
+                ]}
+           ]
+  end
+
   test "keeps SDK clients caller-owned while resolving the Prism service" do
     assert {:ok, []} = Runtime.child_specs(Stack)
 

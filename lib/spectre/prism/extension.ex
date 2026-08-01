@@ -4,6 +4,7 @@ defmodule Spectre.Prism.Extension do
   alias Spectre.Flow.Constraint
   alias Spectre.Prism.Config
   alias Spectre.Prism.Profile
+  alias Spectre.Prism.Registry
 
   @behaviour Spectre.Extension
 
@@ -15,6 +16,11 @@ defmodule Spectre.Prism.Extension do
 
   @impl true
   def setup(owner, _opts) do
+    Module.register_attribute(owner, :spectre_prism_providers,
+      accumulate: true,
+      persist: false
+    )
+
     Module.register_attribute(owner, :spectre_prism_levels, accumulate: true, persist: false)
     Module.register_attribute(owner, :spectre_prism_purposes, accumulate: true, persist: false)
     Module.register_attribute(owner, :spectre_prism_default, persist: false)
@@ -30,17 +36,23 @@ defmodule Spectre.Prism.Extension do
   end
 
   @impl true
-  def agent_config(%Config{} = config), do: [prism: config]
+  def agent_config(%Config{} = config) do
+    [prism: config]
+    |> maybe_put_agent_config(:classifier, config.classifier)
+    |> maybe_put_agent_config(:embedding, config.embedding)
+  end
 
   @spec compile_config(map()) :: {:ok, Config.t()} | {:error, term()}
   defp compile_config(declarations) do
-    levels = declarations.levels
-    purposes = declarations.purposes
     default = declarations.default
     selector = declarations.selector
     opts = declarations.options
 
-    with :ok <- unique(levels, :level),
+    with {:ok, provider_declarations} <- provider_declarations(declarations.providers),
+         {:ok, registry} <- Registry.build(provider_declarations),
+         levels <- declarations.levels ++ Registry.profiles(registry),
+         purposes <- merge_purpose_defaults(declarations.purposes, registry),
+         :ok <- unique(levels, :level),
          :ok <- unique(purposes, :purpose),
          {:ok, profiles} <- profiles(levels),
          {:ok, default} <- default_level(default, profiles),
@@ -53,6 +65,9 @@ defmodule Spectre.Prism.Extension do
          purposes: purposes,
          default: default,
          selector: selector,
+         registry: registry,
+         classifier: Registry.classifier(registry),
+         embedding: Registry.embedding(registry),
          max_attempts: max_attempts,
          options: opts
        }}
@@ -108,6 +123,13 @@ defmodule Spectre.Prism.Extension do
       :error ->
         {:ok,
          %{
+           providers:
+             owner
+             |> Module.get_attribute(:spectre_prism_providers)
+             |> reverse()
+             |> Enum.map(fn {id, adapter, provider_opts} ->
+               {id, {adapter, provider_opts}}
+             end),
            levels: owner |> Module.get_attribute(:spectre_prism_levels) |> reverse(),
            purposes: owner |> Module.get_attribute(:spectre_prism_purposes) |> reverse(),
            default: Module.get_attribute(owner, :spectre_prism_default),
@@ -126,6 +148,7 @@ defmodule Spectre.Prism.Extension do
     with {:ok, model_levels} <- model_levels(models, providers) do
       {:ok,
        %{
+         providers: providers,
          levels: declared_levels ++ model_levels,
          purposes: Map.get(config, :purposes, []),
          default: Map.get(config, :default),
@@ -219,6 +242,13 @@ defmodule Spectre.Prism.Extension do
   defp provider_model(module, model_id) when is_atom(module) and not is_nil(module),
     do: {:ok, {module, :complete, [model: model_id]}}
 
+  defp provider_model({module, provider_opts}, model_id)
+       when is_atom(module) and is_list(provider_opts) do
+    if Keyword.keyword?(provider_opts),
+      do: {:ok, {module, :complete, Keyword.put(provider_opts, :model, model_id)}},
+      else: {:error, {:invalid_prism_provider_options, provider_opts}}
+  end
+
   defp provider_model({module, function}, model_id)
        when is_atom(module) and is_atom(function),
        do: {:ok, {module, function, [model: model_id]}}
@@ -232,6 +262,41 @@ defmodule Spectre.Prism.Extension do
 
   defp provider_model(configuration, _model_id),
     do: {:error, {:invalid_prism_provider, configuration}}
+
+  @spec provider_declarations([{term(), term()}]) ::
+          {:ok, [Registry.declaration()]} | {:error, term()}
+  defp provider_declarations(providers) when is_list(providers) do
+    Enum.reduce_while(providers, {:ok, []}, fn provider, {:ok, declarations} ->
+      case provider_declaration(provider) do
+        {:ok, nil} -> {:cont, {:ok, declarations}}
+        {:ok, declaration} -> {:cont, {:ok, declarations ++ [declaration]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  @spec provider_declaration(term()) ::
+          {:ok, Registry.declaration() | nil} | {:error, term()}
+  defp provider_declaration({id, {adapter, provider_opts}})
+       when is_atom(adapter) and is_list(provider_opts) do
+    if Keyword.keyword?(provider_opts),
+      do: {:ok, {id, adapter, provider_opts}},
+      else: {:error, {:invalid_prism_provider_options, provider_opts}}
+  end
+
+  defp provider_declaration({id, adapter}) when is_atom(adapter) do
+    if catalog_adapter?(adapter), do: {:ok, {id, adapter}}, else: {:ok, nil}
+  end
+
+  defp provider_declaration({_id, _legacy_configuration}), do: {:ok, nil}
+
+  defp provider_declaration(declaration),
+    do: {:error, {:invalid_prism_provider_declaration, declaration}}
+
+  @spec catalog_adapter?(term()) :: boolean()
+  defp catalog_adapter?(adapter) do
+    Code.ensure_loaded?(adapter) and function_exported?(adapter, :catalog, 0)
+  end
 
   @spec standard_rank(term()) :: integer() | nil
   defp standard_rank(:fast), do: 10
@@ -334,6 +399,23 @@ defmodule Spectre.Prism.Extension do
       duplicate -> duplicate
     end
   end
+
+  @spec merge_purpose_defaults([{term(), keyword()}], Registry.t()) ::
+          [{term(), keyword()}]
+  defp merge_purpose_defaults(purposes, registry) do
+    declared = MapSet.new(purposes, &elem(&1, 0))
+
+    defaults =
+      registry
+      |> Registry.purpose_defaults()
+      |> Enum.reject(fn {id, _constraints} -> MapSet.member?(declared, id) end)
+
+    purposes ++ defaults
+  end
+
+  @spec maybe_put_agent_config(keyword(), atom(), term()) :: keyword()
+  defp maybe_put_agent_config(config, _key, nil), do: config
+  defp maybe_put_agent_config(config, key, value), do: Keyword.put(config, key, value)
 
   @spec reverse(list() | nil) :: list()
   defp reverse(nil), do: []
