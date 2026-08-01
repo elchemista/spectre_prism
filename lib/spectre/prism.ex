@@ -15,7 +15,6 @@ defmodule Spectre.Prism do
     id: :prism,
     version: @version,
     contract: 1,
-    spectre: "~> 0.2.0",
     provides: [{:service, :prism}],
     agent_extensions: [Spectre.Prism.Extension],
     dsl: __MODULE__

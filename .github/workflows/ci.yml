@@ -126,6 +126,3 @@ jobs:
 
       - name: Build documentation
         run: mix docs
-
-      - name: Validate package locally (no publish)
-        run: SPECTRE_HEX_BUILD=1 mix hex.build --unpack --output "$RUNNER_TEMP/hex-package"

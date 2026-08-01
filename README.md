@@ -12,7 +12,8 @@ The exact `0.2.0` compatibility surface is published in the
 ## 0.2.0 Spectre Compatibility
 
 Version `0.2.0` aligns Prism's package, inference selector, and Stack contracts
-with Spectre `~> 0.2.0`. Prism still makes a fail-closed capability selection;
+with the current Spectre `main` branch without imposing a Hex version
+requirement. Prism still makes a fail-closed capability selection;
 provider execution, Runs, operational loops, and persistence remain owned by
 the core and host application.
 

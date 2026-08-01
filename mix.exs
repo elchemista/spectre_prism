@@ -38,15 +38,12 @@ defmodule SpectrePrism.MixProject do
   end
 
   defp spectre_dep do
-    case {System.get_env("SPECTRE_HEX_BUILD"), System.get_env("SPECTRE_PATH")} do
-      {hex_build, _path} when hex_build in ["1", "true"] ->
-        {:spectre, "~> 0.2.0"}
-
-      {_hex_build, path} when is_binary(path) and path != "" ->
-        {:spectre, "~> 0.2.0", path: Path.expand(path)}
+    case System.get_env("SPECTRE_PATH") do
+      path when is_binary(path) and path != "" ->
+        {:spectre, path: Path.expand(path)}
 
       _other ->
-        {:spectre, "~> 0.2.0", github: "elchemista/spectre", branch: "main"}
+        {:spectre, github: "elchemista/spectre", branch: "main"}
     end
   end
 

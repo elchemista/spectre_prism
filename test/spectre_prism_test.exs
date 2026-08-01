@@ -67,7 +67,7 @@ defmodule Spectre.Prism.StackContractTest do
     assert package.id == :prism
     assert package.version == "0.2.0"
     assert package.contract == 1
-    assert package.spectre == "~> 0.2.0"
+    assert package.spectre == ">= 0.0.0"
     assert package.dsl == Spectre.Prism
     assert package.provides == [{:service, :prism}]
     assert package.operations == []
