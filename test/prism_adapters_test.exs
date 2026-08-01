@@ -99,6 +99,76 @@ defmodule Spectre.Prism.AdaptersTest do
                     _body}
   end
 
+  test "OpenRouter embeds batches in one request, preserving provider index order" do
+    reply =
+      ok(%{
+        "data" => [
+          %{"index" => 1, "embedding" => [3, 4]},
+          %{"index" => 0, "embedding" => [1, 2]}
+        ]
+      })
+
+    assert {:ok, [[1.0, 2.0], [3.0, 4.0]]} =
+             OpenRouter.embed(
+               ["first", "second"],
+               request_opts(reply,
+                 model: "perplexity/pplx-embed-v1-0.6b",
+                 dimensions: 2,
+                 encoding_format: "base64"
+               )
+             )
+
+    assert_receive {:adapter_request, :post, "https://openrouter.ai/api/v1/embeddings", _headers,
+                    body}
+
+    assert body["input"] == ["first", "second"]
+    assert body["model"] == "perplexity/pplx-embed-v1-0.6b"
+    assert body["dimensions"] == 2
+    assert body["encoding_format"] == "base64"
+  end
+
+  test "OpenRouter batch embedding rejects invalid input and count mismatches" do
+    assert {:error,
+            %Error{provider: :openrouter, kind: :configuration, code: :invalid_embedding_input}} =
+             OpenRouter.embed([], request_opts(ok(%{"data" => []})))
+
+    assert {:error,
+            %Error{provider: :openrouter, kind: :configuration, code: :invalid_embedding_input}} =
+             OpenRouter.embed(["one", :two], request_opts(ok(%{"data" => []})))
+
+    reply = ok(%{"data" => [%{"index" => 0, "embedding" => [1, 2]}]})
+
+    assert {:error, %Error{kind: :invalid_response, code: :embedding_count_mismatch}} =
+             OpenRouter.embed(["first", "second"], request_opts(reply, model: "any/model"))
+  end
+
+  test "OpenAI embeds batches with encoding_format passthrough" do
+    reply =
+      ok(%{
+        "data" => [
+          %{"index" => 0, "embedding" => [0.25, 0.75]},
+          %{"index" => 1, "embedding" => [0.5, 0.5]}
+        ]
+      })
+
+    assert {:ok, [[0.25, 0.75], [0.5, 0.5]]} =
+             OpenAI.embed(
+               ["alpha", "beta"],
+               request_opts(reply,
+                 model: "text-embedding-3-small",
+                 dimensions: 2,
+                 encoding_format: "float"
+               )
+             )
+
+    assert_receive {:adapter_request, :post, "https://api.openai.com/v1/embeddings", _headers,
+                    body}
+
+    assert body["input"] == ["alpha", "beta"]
+    assert body["encoding_format"] == "float"
+    assert body["dimensions"] == 2
+  end
+
   test "Ollama uses local chat, embed, and pull endpoints without credentials" do
     reply =
       ok(%{

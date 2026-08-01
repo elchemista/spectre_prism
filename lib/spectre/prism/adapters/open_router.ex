@@ -89,17 +89,33 @@ defmodule Spectre.Prism.Adapters.OpenRouter do
     do: load(model, opts)
 
   @impl Spectre.Classifier.Embedding
-  def embed(text, opts \\ []) when is_binary(text) and is_list(opts) do
+  def embed(input, opts \\ [])
+
+  def embed(text, opts) when is_binary(text) and is_list(opts) do
+    with {:ok, [vector]} <- request_embeddings(text, 1, opts), do: {:ok, vector}
+  end
+
+  def embed(texts, opts) when is_list(texts) and is_list(opts) do
+    if texts != [] and Enum.all?(texts, &is_binary/1) do
+      request_embeddings(texts, length(texts), opts)
+    else
+      {:error, Error.configuration(@provider, :invalid_embedding_input)}
+    end
+  end
+
+  @spec request_embeddings(String.t() | [String.t()], pos_integer(), keyword()) ::
+          {:ok, [[float()]]} | {:error, Error.t()}
+  defp request_embeddings(input, expected_count, opts) do
     with {:ok, key} <- Client.api_key(@provider, opts, "OPENROUTER_API_KEY"),
          {:ok, body, _headers} <-
            Client.post(
              @provider,
              Client.url(Keyword.get(opts, :base_url, @base_url), "/embeddings"),
              request_headers(key, opts),
-             embedding_body(text, opts),
+             embedding_body(input, opts),
              opts
            ) do
-      embedding_vector(body)
+      embedding_vectors(body, expected_count)
     end
   end
 
@@ -138,13 +154,14 @@ defmodule Spectre.Prism.Adapters.OpenRouter do
     |> Client.put_option("provider", opts, [:provider_routing])
   end
 
-  @spec embedding_body(String.t(), keyword()) :: map()
-  defp embedding_body(text, opts) do
+  @spec embedding_body(String.t() | [String.t()], keyword()) :: map()
+  defp embedding_body(input, opts) do
     %{
       "model" => Keyword.get(opts, :model, "openai/text-embedding-3-small"),
-      "input" => text,
+      "input" => input,
       "encoding_format" => "float"
     }
+    |> Client.put_option("encoding_format", opts, [:encoding_format])
     |> Client.put_option("dimensions", opts, [:dimensions])
   end
 
@@ -211,23 +228,46 @@ defmodule Spectre.Prism.Adapters.OpenRouter do
 
   defp message_text(_choice), do: nil
 
-  @spec embedding_vector(term()) :: {:ok, [float()]} | {:error, Error.t()}
-  defp embedding_vector(%{"data" => [%{"embedding" => vector} | _rest]})
-       when is_list(vector) and vector != [] do
-    if Enum.all?(vector, &is_number/1),
-      do: {:ok, Enum.map(vector, &(&1 / 1))},
-      else: {:error, Error.invalid_response(@provider, :invalid_embedding_vector)}
+  @spec embedding_vectors(term(), pos_integer()) :: {:ok, [[float()]]} | {:error, Error.t()}
+  defp embedding_vectors(%{"data" => data}, expected_count)
+       when is_list(data) and data != [] do
+    vectors =
+      data
+      |> Enum.sort_by(&embedding_entry_index/1)
+      |> Enum.map(&embedding_entry_vector/1)
+
+    cond do
+      Enum.any?(vectors, &is_nil/1) ->
+        {:error, Error.invalid_response(@provider, :invalid_embedding_vector)}
+
+      length(vectors) != expected_count ->
+        {:error, Error.invalid_response(@provider, :embedding_count_mismatch)}
+
+      true ->
+        {:ok, vectors}
+    end
   end
 
-  defp embedding_vector(body) when is_map(body) do
+  defp embedding_vectors(body, _expected_count) when is_map(body) do
     case Client.provider_error(body) do
       nil -> {:error, Error.invalid_response(@provider, :missing_embedding_vector)}
       error -> {:error, Error.provider(@provider, Client.provider_error_code(error))}
     end
   end
 
-  defp embedding_vector(_body),
+  defp embedding_vectors(_body, _expected_count),
     do: {:error, Error.invalid_response(@provider, :embedding_response_not_an_object)}
+
+  @spec embedding_entry_index(term()) :: non_neg_integer()
+  defp embedding_entry_index(%{"index" => index}) when is_integer(index), do: index
+  defp embedding_entry_index(_entry), do: 0
+
+  @spec embedding_entry_vector(term()) :: [float()] | nil
+  defp embedding_entry_vector(%{"embedding" => vector}) when is_list(vector) and vector != [] do
+    if Enum.all?(vector, &is_number/1), do: Enum.map(vector, &(&1 / 1))
+  end
+
+  defp embedding_entry_vector(_entry), do: nil
 
   @spec usage(term()) :: map()
   defp usage(usage) when is_map(usage) do
