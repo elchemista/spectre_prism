@@ -4,8 +4,15 @@
 request. It enforces modality, context-window, privacy, minimum-level, cost,
 latency, and attempt constraints before a model is called.
 
-The exact `0.1.6` compatibility surface is published in the
+The exact `0.2.0` compatibility surface is published in the
 [public API manifest](docs/PUBLIC_API.md).
+
+## 0.2.0 Spectre Compatibility
+
+Version `0.2.0` aligns Prism's package, inference selector, and Stack contracts
+with Spectre `~> 0.2.0`. Prism still makes a fail-closed capability selection;
+provider execution, Runs, operational loops, and persistence remain owned by
+the core and host application.
 
 ## 0.1.6 Recoverable Baseline
 
@@ -70,7 +77,7 @@ attempt limits remain fail-closed constraints. Provider clients and secrets
 are still supplied by the application; the compiled Stack contains only
 portable adapter configuration.
 
-With Spectre 0.1.6, that configuration is re-resolved for every
+With Spectre 0.2.0, that configuration is re-resolved for every
 `Spectre.Runtime.advance/2`. Prism selects inference capabilities inside the
 canonical Run step, while provider clients, adapter sessions, processes, and
 callbacks remain caller-owned and are never embedded in a `Spectre.Run`
@@ -93,8 +100,8 @@ advanced. Prism selects a compatible cognitive capability, but it does not
 create or look up Instances, enqueue Runs, retain Agent State, own the ready
 queue or Invocation registry, or schedule provider work. Multi-Run fairness
 and observable turn boundaries belong to Spectre core. Inference remains
-synchronous in 0.1.6; later asynchronous scheduling and continuity-plane work
-are not part of this release.
+synchronous in 0.2.0; Prism does not create a second provider scheduler or
+continuity lifecycle.
 
 For an Agent-local configuration, `use Spectre.Prism` remains available:
 

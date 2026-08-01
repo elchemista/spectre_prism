@@ -4,6 +4,20 @@ All notable changes to Spectre Prism are documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-01
+
+### Changed
+
+- Raised the package, inference selector, and Stack compatibility contracts to
+  Spectre 0.2.0.
+- Verified fail-closed profile selection and Agent integration against the
+  Spectre 0.2.0 operational runtime.
+
+### Compatibility
+
+- Prism remains a capability selector and does not own provider scheduling,
+  Runs, Work, Vigil, or Instance lifecycle.
+
 ## [0.1.6] - 2026-07-31
 
 ### Changed
@@ -39,7 +53,8 @@ All notable changes to Spectre Prism are documented in this file.
 - Asynchronous provider scheduling and continuity-plane lifecycle remain later
   migration phases.
 
-[Unreleased]: https://github.com/elchemista/spectre_prism/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/elchemista/spectre_prism/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/elchemista/spectre_prism/compare/v0.1.6...v0.2.0
 [0.1.6]: https://github.com/elchemista/spectre_prism/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/elchemista/spectre_prism/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/elchemista/spectre_prism/compare/v0.1.3...v0.1.4
