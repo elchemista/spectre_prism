@@ -4,6 +4,40 @@ All notable changes to Spectre Prism are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Extended the existing Stack and Agent `provider` DSL to accept a Prism
+  adapter module plus optional parameters, and added an immutable registry that
+  compiles provider catalogs into Spectre intelligence profiles.
+- Added OpenAI Responses, OpenRouter Chat Completions, Ollama, and Gemini
+  Interactions adapters with fast, balanced, and deep model tiers.
+- Added hosted and local embedding integration for Spectre classifier encoding
+  and embedding-based routing.
+- Added an injectable HTTP transport, runtime-only credential resolution, and
+  sanitized retry-aware adapter errors.
+
+### Compatibility
+
+- Spectre's per-inference `intelligence: :fast | :balanced | :deep` contract is
+  unchanged. Existing two-argument `provider`, `model`, and `level`
+  declarations remain supported.
+- Spectre is resolved directly from the GitHub `main` branch without a Hex
+  version requirement; `SPECTRE_PATH` remains available for local development.
+
+## [0.2.0] - 2026-08-01
+
+### Changed
+
+- Aligned the package, inference selector, and Stack contracts with the current
+  Spectre `main` branch without adding a Hex version requirement.
+- Verified fail-closed profile selection and Agent integration against the
+  Spectre 0.2.0 operational runtime.
+
+### Compatibility
+
+- Prism remains a capability selector and does not own provider scheduling,
+  Runs, Work, Vigil, or Instance lifecycle.
+
 ## [0.1.6] - 2026-07-31
 
 ### Changed
@@ -39,7 +73,8 @@ All notable changes to Spectre Prism are documented in this file.
 - Asynchronous provider scheduling and continuity-plane lifecycle remain later
   migration phases.
 
-[Unreleased]: https://github.com/elchemista/spectre_prism/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/elchemista/spectre_prism/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/elchemista/spectre_prism/compare/v0.1.6...v0.2.0
 [0.1.6]: https://github.com/elchemista/spectre_prism/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/elchemista/spectre_prism/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/elchemista/spectre_prism/compare/v0.1.3...v0.1.4
