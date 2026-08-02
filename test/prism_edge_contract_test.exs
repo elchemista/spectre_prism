@@ -214,6 +214,26 @@ defmodule Spectre.Prism.EdgeContractTest do
     end
   end
 
+  test "adaptive retry overrides the original purpose preference" do
+    profiles = profiles()
+
+    config = %Config{
+      profiles: profiles,
+      default: :fast,
+      purposes: %{response_generation: [prefer: :balanced]}
+    }
+
+    retry =
+      request(
+        attempt: 2,
+        metadata: %{previous_levels: [:balanced]}
+      )
+
+    assert {:ok, selection} = Adaptive.select(retry, profiles, context(), config: config)
+    assert selection.level == :deep
+    assert selection.reason == :compatible_fallback
+  end
+
   test "explicit fallback chains obey the configured minimum level" do
     profiles = [
       Profile.new(:fast, model: :fast, fallback: [:deep, :balanced]),
