@@ -40,11 +40,11 @@ defmodule Spectre.Prism.Selector.Adaptive do
 
     preferred =
       cond do
-        not is_nil(constraints.preferred_level) ->
-          constraints.preferred_level
-
         request.attempt > 1 ->
           highest_id(profiles)
+
+        not is_nil(constraints.preferred_level) ->
+          constraints.preferred_level
 
         constraints.risk == :high ->
           highest_id(profiles)
