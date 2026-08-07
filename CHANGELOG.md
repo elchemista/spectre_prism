@@ -21,15 +21,19 @@ All notable changes to Spectre Prism are documented in this file.
 - Spectre's per-inference `intelligence: :fast | :balanced | :deep` contract is
   unchanged. Existing two-argument `provider`, `model`, and `level`
   declarations remain supported.
-- Spectre is resolved directly from the GitHub `main` branch without a Hex
-  version requirement; `SPECTRE_PATH` remains available for local development.
+- Spectre is resolved directly from the GitHub `0.2.0` tag.
+
+### Changed
+
+- Made distribution GitHub-only by removing Hex package metadata and retaining
+  documentation-only release CI.
 
 ## [0.2.0] - 2026-08-01
 
 ### Changed
 
-- Aligned the package, inference selector, and Stack contracts with the current
-  Spectre `main` branch without adding a Hex version requirement.
+- Aligned the package, inference selector, and Stack contracts with the
+  Spectre `0.2.0` GitHub tag.
 - Verified fail-closed profile selection and Agent integration against the
   Spectre 0.2.0 operational runtime.
 

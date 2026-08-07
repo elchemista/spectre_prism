@@ -12,8 +12,7 @@ The exact `0.2.0` compatibility surface is published in the
 ## 0.2.0 Spectre Compatibility
 
 Version `0.2.0` aligns Prism's package, inference selector, and Stack contracts
-with the current Spectre `main` branch without imposing a Hex version
-requirement. Prism still makes a fail-closed capability selection;
+with the Spectre `0.2.0` GitHub tag. Prism still makes a fail-closed capability selection;
 provider execution, Runs, operational loops, and persistence remain owned by
 the core and host application.
 
@@ -22,9 +21,8 @@ the core and host application.
 Version `0.1.6` is a consolidation-only release with no new runtime feature and
 no intentional breaking change. Elixir 1.19 on Erlang/OTP 28 is the initially
 guaranteed pair. Uniform CI runs format, warnings-as-errors compilation, tests,
-non-strict Credo, Dialyzer, ExDoc, and local package validation with no
-publication. The changelog,
-Apache-2.0 license, package metadata, and explicit API manifest complete the
+non-strict Credo, Dialyzer, and ExDoc. The changelog, Apache-2.0 license, and
+explicit API manifest complete the
 release boundary before `0.2.0` development begins.
 
 ## Installation
@@ -34,10 +32,12 @@ The project is distributed from GitHub:
 ```elixir
 def deps do
   [
-    {:spectre_prism, github: "elchemista/spectre_prism"}
+    {:spectre_prism, github: "elchemista/spectre_prism", tag: "v0.2.0"}
   ]
 end
 ```
+
+Spectre Prism is distributed exclusively from GitHub; there is no Hex package.
 
 ## Stack
 
