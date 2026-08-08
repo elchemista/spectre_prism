@@ -48,7 +48,8 @@ defmodule Spectre.Prism.Extension do
     selector = declarations.selector
     opts = declarations.options
 
-    with {:ok, provider_declarations} <- provider_declarations(declarations.providers),
+    with :ok <- validate_declarations(declarations),
+         {:ok, provider_declarations} <- provider_declarations(declarations.providers),
          {:ok, registry} <- Registry.build(provider_declarations),
          levels <- declarations.levels ++ Registry.profiles(registry),
          purposes <- merge_purpose_defaults(declarations.purposes, registry),
@@ -83,7 +84,7 @@ defmodule Spectre.Prism.Extension do
       {constraints, remaining} when is_list(constraints) or is_map(constraints) ->
         normalized = if is_map(constraints), do: Map.to_list(constraints), else: constraints
 
-        case validate_constraint_levels(normalized, config.profiles) do
+        case validate_constraints(normalized, config.profiles) do
           :ok ->
             {[
                Constraint.new(
@@ -141,16 +142,16 @@ defmodule Spectre.Prism.Extension do
 
   @spec stack_declarations(map()) :: {:ok, map()} | {:error, term()}
   defp stack_declarations(config) when is_map(config) do
-    providers = Map.get(config, :providers, [])
-    models = Map.get(config, :models, [])
-    declared_levels = Map.get(config, :levels, [])
-
-    with {:ok, model_levels} <- model_levels(models, providers) do
+    with {:ok, providers} <- stack_list(config, :providers),
+         {:ok, models} <- stack_list(config, :models),
+         {:ok, declared_levels} <- stack_list(config, :levels),
+         {:ok, purposes} <- stack_list(config, :purposes),
+         {:ok, model_levels} <- model_levels(models, providers) do
       {:ok,
        %{
          providers: providers,
          levels: declared_levels ++ model_levels,
-         purposes: Map.get(config, :purposes, []),
+         purposes: purposes,
          default: Map.get(config, :default),
          selector: Map.get(config, :selector),
          options: Map.get(config, :options, [])
@@ -159,6 +160,84 @@ defmodule Spectre.Prism.Extension do
   end
 
   defp stack_declarations(config), do: {:error, {:invalid_prism_stack_config, config}}
+
+  @spec stack_list(map(), :providers | :models | :levels | :purposes) ::
+          {:ok, list()} | {:error, term()}
+  defp stack_list(config, field) do
+    case Map.get(config, field, []) do
+      value when is_list(value) -> {:ok, value}
+      value -> {:error, {invalid_list_field(field), value}}
+    end
+  end
+
+  @spec validate_declarations(map()) :: :ok | {:error, term()}
+  defp validate_declarations(declarations) do
+    with :ok <- validate_list_field(declarations, :providers),
+         :ok <- validate_list_field(declarations, :levels),
+         :ok <- validate_list_field(declarations, :purposes),
+         :ok <- validate_extension_options(declarations.options),
+         :ok <- validate_level_declarations(declarations.levels),
+         :ok <- validate_purpose_declarations(declarations.purposes),
+         :ok <- validate_runtime_only_secrets(declarations) do
+      if Registry.portable_config?(Map.delete(declarations, :selector)),
+        do: :ok,
+        else: {:error, :prism_configuration_must_be_portable}
+    end
+  end
+
+  @spec validate_list_field(map(), atom()) :: :ok | {:error, term()}
+  defp validate_list_field(declarations, field) do
+    case Map.get(declarations, field) do
+      value when is_list(value) -> :ok
+      value -> {:error, {invalid_list_field(field), value}}
+    end
+  end
+
+  @spec invalid_list_field(:providers | :models | :levels | :purposes) :: atom()
+  defp invalid_list_field(:providers), do: :invalid_prism_stack_providers
+  defp invalid_list_field(:models), do: :invalid_prism_stack_models
+  defp invalid_list_field(:levels), do: :invalid_prism_stack_levels
+  defp invalid_list_field(:purposes), do: :invalid_prism_stack_purposes
+
+  @spec validate_extension_options(term()) :: :ok | {:error, term()}
+  defp validate_extension_options(options) do
+    if is_list(options) and Keyword.keyword?(options),
+      do: :ok,
+      else: {:error, {:invalid_prism_options, options}}
+  end
+
+  @spec validate_level_declarations(list()) :: :ok | {:error, term()}
+  defp validate_level_declarations(levels) do
+    case Enum.find(levels, fn
+           {id, options} -> is_nil(id) or not is_list(options) or not Keyword.keyword?(options)
+           _invalid -> true
+         end) do
+      nil -> :ok
+      invalid -> {:error, {:invalid_prism_level_declaration, invalid}}
+    end
+  end
+
+  @spec validate_purpose_declarations(list()) :: :ok | {:error, term()}
+  defp validate_purpose_declarations(purposes) do
+    case Enum.find(purposes, fn
+           {id, constraints} ->
+             is_nil(id) or not is_list(constraints) or not Keyword.keyword?(constraints)
+
+           _invalid ->
+             true
+         end) do
+      nil -> :ok
+      invalid -> {:error, {:invalid_prism_purpose_declaration, invalid}}
+    end
+  end
+
+  @spec validate_runtime_only_secrets(term()) :: :ok | {:error, term()}
+  defp validate_runtime_only_secrets(declarations) do
+    case Registry.runtime_secret(declarations) do
+      nil -> :ok
+      secret -> {:error, {:prism_provider_secret_must_be_runtime, secret}}
+    end
+  end
 
   @spec model_levels([{term(), term()}], [{term(), term()}]) ::
           {:ok, [{term(), keyword()}]} | {:error, term()}
@@ -184,6 +263,9 @@ defmodule Spectre.Prism.Extension do
       {{id, model}, index}, {:ok, levels} ->
         profile_opts = [model: model, rank: standard_rank(id) || index * 10]
         {:cont, {:ok, [{id, profile_opts} | levels]}}
+
+      {invalid, _index}, _acc ->
+        {:halt, {:error, {:invalid_prism_model_declaration, invalid}}}
     end)
     |> case do
       {:ok, levels} -> {:ok, Enum.reverse(levels)}
@@ -266,13 +348,18 @@ defmodule Spectre.Prism.Extension do
   @spec provider_declarations([{term(), term()}]) ::
           {:ok, [Registry.declaration()]} | {:error, term()}
   defp provider_declarations(providers) when is_list(providers) do
-    Enum.reduce_while(providers, {:ok, []}, fn provider, {:ok, declarations} ->
+    providers
+    |> Enum.reduce_while({:ok, []}, fn provider, {:ok, declarations} ->
       case provider_declaration(provider) do
         {:ok, nil} -> {:cont, {:ok, declarations}}
-        {:ok, declaration} -> {:cont, {:ok, declarations ++ [declaration]}}
+        {:ok, declaration} -> {:cont, {:ok, [declaration | declarations]}}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
+    |> case do
+      {:ok, declarations} -> {:ok, Enum.reverse(declarations)}
+      {:error, _reason} = error -> error
+    end
   end
 
   @spec provider_declaration(term()) ::
@@ -312,6 +399,8 @@ defmodule Spectre.Prism.Extension do
     {:ok, Enum.map(levels, fn {id, opts} -> Profile.new(id, opts) end)}
   rescue
     exception -> {:error, {:invalid_prism_profile, Exception.message(exception)}}
+  catch
+    kind, reason -> {:error, {:invalid_prism_profile, {kind, reason}}}
   end
 
   @spec default_level(term(), [Spectre.Inference.Profile.t()]) ::
@@ -351,6 +440,14 @@ defmodule Spectre.Prism.Extension do
     end)
   end
 
+  @spec validate_constraints(term(), [Spectre.Inference.Profile.t()]) ::
+          :ok | {:error, term()}
+  defp validate_constraints(constraints, profiles) do
+    if is_list(constraints) and Keyword.keyword?(constraints),
+      do: validate_constraint_levels(constraints, profiles),
+      else: {:error, {:invalid_prism_constraints, constraints}}
+  end
+
   @spec validate_constraint_level(term(), MapSet.t()) :: false | {:error, term()}
   defp validate_constraint_level(nil, _ids), do: false
 
@@ -360,15 +457,30 @@ defmodule Spectre.Prism.Extension do
 
   @spec selector(term()) :: {:ok, {module(), keyword()}} | {:error, term()}
   defp selector(nil), do: {:ok, {Spectre.Prism.Selector.Adaptive, []}}
-  defp selector(module) when is_atom(module), do: {:ok, {module, []}}
+
+  defp selector(module) when is_atom(module),
+    do: validate_selector(module, [])
 
   defp selector({module, opts}) when is_atom(module) and is_list(opts) do
-    if Keyword.keyword?(opts),
-      do: {:ok, {module, opts}},
-      else: {:error, {:invalid_prism_selector_options, opts}}
+    cond do
+      not Keyword.keyword?(opts) -> {:error, {:invalid_prism_selector_options, opts}}
+      not Registry.portable_config?(opts) -> {:error, :prism_selector_options_must_be_portable}
+      true -> validate_selector(module, opts)
+    end
   end
 
   defp selector(other), do: {:error, {:invalid_prism_selector, other}}
+
+  @spec validate_selector(term(), keyword()) ::
+          {:ok, {module(), keyword()}} | {:error, term()}
+  defp validate_selector(module, opts) do
+    if not is_nil(module) and Code.ensure_loaded?(module) and
+         function_exported?(module, :select, 4),
+       do: {:ok, {module, opts}},
+       else: {:error, {:invalid_prism_selector, module}}
+  rescue
+    _exception -> {:error, {:invalid_prism_selector, module}}
+  end
 
   @spec max_attempts(keyword()) :: {:ok, pos_integer()} | {:error, term()}
   defp max_attempts(opts) do

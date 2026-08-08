@@ -64,44 +64,83 @@ defmodule Spectre.Prism.Adapters.Gemini do
   end
 
   @impl Spectre.LLM
-  def complete(prompt, opts \\ []) when is_binary(prompt) and is_list(opts) do
-    prompt |> Prompt.parts() |> complete_parts(opts)
+  def complete(prompt, opts \\ [])
+
+  def complete(prompt, opts) when is_binary(prompt) do
+    with :ok <- Client.validate_options(@provider, opts) do
+      prompt |> Prompt.parts() |> complete_parts(opts)
+    end
   end
+
+  def complete(_prompt, _opts),
+    do: {:error, Error.configuration(@provider, :invalid_prompt)}
 
   @impl Spectre.LLM
-  def complete_plan(%Spectre.Prompt.Plan{} = plan, opts) when is_list(opts) do
-    plan |> Prompt.parts() |> complete_parts(opts)
+  def complete_plan(%Spectre.Prompt.Plan{} = plan, opts) do
+    with :ok <- Client.validate_options(@provider, opts),
+         :ok <- Client.validate_prompt_plan(@provider, plan) do
+      plan |> Prompt.parts() |> complete_parts(opts)
+    end
   end
 
-  @impl Spectre.Classifier.Embedding
-  def load(model, opts \\ []) when is_binary(model) and is_list(opts) do
-    case Keyword.get(opts, :dimensions, Map.get(@embedding_dimensions, clean_model(model))) do
-      dimensions when is_integer(dimensions) and dimensions > 0 ->
-        {:ok, dimensions}
+  def complete_plan(_plan, _opts),
+    do: {:error, Error.configuration(@provider, :invalid_prompt_plan)}
 
-      _unknown ->
-        with {:ok, vector} <- embed("dimension probe", Keyword.put(opts, :model, model)) do
-          {:ok, length(vector)}
-        end
+  @impl Spectre.Classifier.Embedding
+  def load(model, opts \\ [])
+
+  def load(model, opts) when is_binary(model) and model != "" do
+    with :ok <- Client.validate_options(@provider, opts) do
+      load_dimensions(model, opts)
+    end
+  end
+
+  def load(_model, _opts), do: {:error, Error.configuration(@provider, :invalid_model)}
+
+  @impl Spectre.Classifier.Embedding
+  def download(model, opts \\ []), do: load(model, opts)
+
+  @spec load_dimensions(String.t(), keyword()) :: {:ok, pos_integer()} | {:error, term()}
+  defp load_dimensions(model, opts) do
+    case Client.dimensions(@provider, opts, Map.get(@embedding_dimensions, clean_model(model))) do
+      :probe -> probe_dimensions(model, opts)
+      result -> result
+    end
+  end
+
+  @spec probe_dimensions(String.t(), keyword()) :: {:ok, pos_integer()} | {:error, term()}
+  defp probe_dimensions(model, opts) do
+    with {:ok, vector} <- embed("dimension probe", Keyword.put(opts, :model, model)) do
+      {:ok, length(vector)}
     end
   end
 
   @impl Spectre.Classifier.Embedding
-  def download(model, opts \\ []) when is_binary(model) and is_list(opts),
-    do: load(model, opts)
+  def embed(text, opts \\ [])
 
-  @impl Spectre.Classifier.Embedding
-  def embed(text, opts \\ []) when is_binary(text) and is_list(opts) do
+  def embed(text, opts) when is_binary(text) and text != "" do
+    with :ok <- Client.validate_options(@provider, opts) do
+      embed_validated(text, opts)
+    end
+  end
+
+  def embed(_text, _opts),
+    do: {:error, Error.configuration(@provider, :invalid_embedding_input)}
+
+  @spec embed_validated(String.t(), keyword()) :: {:ok, [float()]} | {:error, term()}
+  defp embed_validated(text, opts) do
     model = Keyword.get(opts, :model, Keyword.get(opts, :encoder_model, "gemini-embedding-2"))
     version = Keyword.get(opts, :embedding_api_version, "v1beta")
 
-    with {:ok, key} <- Client.api_key(@provider, opts, @api_key_envs),
+    with {:ok, model} <- validate_segment(clean_model(model), :invalid_model),
+         {:ok, version} <- validate_segment(version, :invalid_api_version),
+         {:ok, key} <- Client.api_key(@provider, opts, @api_key_envs),
          {:ok, body, _headers} <-
            Client.post(
              @provider,
              Client.url(
                Keyword.get(opts, :base_url, @base_url),
-               "/#{version}/models/#{clean_model(model)}:embedContent"
+               "/#{Client.path_segment(version)}/models/#{Client.path_segment(clean_model(model))}:embedContent"
              ),
              request_headers(key, opts),
              embedding_body(text, model, opts),
@@ -115,13 +154,14 @@ defmodule Spectre.Prism.Adapters.Gemini do
   defp complete_parts(parts, opts) do
     version = Keyword.get(opts, :interaction_api_version, "v1beta")
 
-    with {:ok, key} <- Client.api_key(@provider, opts, @api_key_envs),
+    with {:ok, version} <- validate_segment(version, :invalid_api_version),
+         {:ok, key} <- Client.api_key(@provider, opts, @api_key_envs),
          {:ok, body, _headers} <-
            Client.post(
              @provider,
              Client.url(
                Keyword.get(opts, :base_url, @base_url),
-               "/#{version}/interactions"
+               "/#{Client.path_segment(version)}/interactions"
              ),
              request_headers(key, opts),
              interaction_body(parts, opts),
@@ -272,11 +312,14 @@ defmodule Spectre.Prism.Adapters.Gemini do
 
   @spec usage(term()) :: map()
   defp usage(usage) when is_map(usage) do
+    input = Client.token_count(usage, "total_input_tokens")
+    output = Client.token_count(usage, "total_output_tokens")
+
     %{
-      input_tokens: Map.get(usage, "total_input_tokens", 0),
-      output_tokens: Map.get(usage, "total_output_tokens", 0),
-      reasoning_tokens: Map.get(usage, "total_thought_tokens", 0),
-      total_tokens: Map.get(usage, "total_tokens", 0)
+      input_tokens: input,
+      output_tokens: output,
+      reasoning_tokens: Client.token_count(usage, "total_thought_tokens"),
+      total_tokens: Client.token_count(usage, "total_tokens", input + output)
     }
   end
 
@@ -319,4 +362,12 @@ defmodule Spectre.Prism.Adapters.Gemini do
         Map.put(config, "taskType", Client.json(task))
     end
   end
+
+  @spec validate_segment(term(), atom()) :: {:ok, String.t()} | {:error, Error.t()}
+  defp validate_segment(value, _error) when is_binary(value) and value != "" do
+    {:ok, value}
+  end
+
+  defp validate_segment(_value, error),
+    do: {:error, Error.configuration(@provider, error)}
 end

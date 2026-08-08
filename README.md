@@ -102,6 +102,27 @@ and Stack configuration must not retain secrets. Use the environment variables
 above, select another variable with `api_key_env:`, or pass runtime provider
 options at the Spectre call boundary.
 
+Catalog and provider configuration is recursively checked before it enters a
+Stack. Functions, processes, ports, references, credential headers, tokens,
+passwords, and secret keys are rejected; those values belong at the runtime
+call boundary only.
+
+The bundled transport validates HTTP(S) URLs and headers before connecting.
+Base URLs cannot contain userinfo, a query, or a fragment, and Gemini endpoint
+segments are percent-encoded. Runtime transport limits can be configured with
+positive values:
+
+```elixir
+http_timeout: 60_000,
+connect_timeout: 10_000,
+max_response_bytes: 16_000_000,
+follow_redirects: false
+```
+
+Non-JSON error bodies are never retained in adapter errors. Their HTTP status
+is preserved for retry decisions, while only a short stable provider error code
+may cross the adapter boundary.
+
 Models, classifier selection, embeddings, endpoints, and other non-secret
 provider parameters are configurable in the optional third argument. Profile
 IDs remain the Spectre intelligence levels `:fast`, `:balanced`, and `:deep`:

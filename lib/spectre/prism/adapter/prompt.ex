@@ -5,6 +5,14 @@ defmodule Spectre.Prism.Adapter.Prompt do
 
   @type parts :: %{instructions: String.t() | nil, input: String.t()}
 
+  @doc false
+  @spec valid?(term()) :: boolean()
+  def valid?(%Plan{} = plan) do
+    Enum.all?([plan.instructions, plan.context, plan.task], &valid_fragments?/1)
+  end
+
+  def valid?(_prompt), do: false
+
   @spec parts(String.t() | Plan.t()) :: parts()
   def parts(prompt) when is_binary(prompt), do: %{instructions: nil, input: prompt}
 
@@ -62,4 +70,14 @@ defmodule Spectre.Prism.Adapter.Prompt do
   defp maybe_message(messages, role, content) do
     messages ++ [%{"role" => role, "content" => content}]
   end
+
+  @spec valid_fragments?(term()) :: boolean()
+  defp valid_fragments?(fragments) when is_list(fragments) do
+    Enum.all?(fragments, fn
+      %{content: content} when is_binary(content) -> true
+      _invalid -> false
+    end)
+  end
+
+  defp valid_fragments?(_fragments), do: false
 end

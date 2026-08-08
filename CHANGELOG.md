@@ -28,6 +28,37 @@ All notable changes to Spectre Prism are documented in this file.
 - Made distribution GitHub-only by removing Hex package metadata and retaining
   documentation-only release CI.
 
+### Fixed
+
+- Contained malformed provider replies, callback failures, selector failures,
+  invalid prompt plans, and non-keyword runtime options behind typed errors.
+- Preserved HTTP status and retry semantics for non-JSON provider errors and
+  validated timeout, redirect, response-size, URL, and header options before a
+  request is opened.
+- Enforced exact, unique batch embedding indexes, consistent vector dimensions,
+  positive configured dimensions, and numeric usage counters.
+- Kept the sole available automatic classifier and embedding when unrelated
+  providers are registered, while remaining fail-closed when multiple automatic
+  candidates are ambiguous.
+
+### Security
+
+- Rejected credentials and live runtime terms recursively from provider
+  declarations and adapter catalogs, including alternate credential key forms.
+- Blocked URL userinfo, fragments, header injection, unsafe endpoint segments,
+  and unbounded provider error codes from compiled or runtime adapter paths.
+
+### Performance
+
+- Replaced repeated list concatenation while compiling provider declarations
+  and profiles with linear accumulation and one final reversal.
+
+### Tests
+
+- Added real local-socket HTTP coverage plus malformed transport, catalog,
+  provider, embedding, and selector regression suites; project coverage now
+  clears the enforced 90% threshold.
+
 ## [0.2.0] - 2026-08-01
 
 ### Changed

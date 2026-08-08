@@ -64,46 +64,78 @@ defmodule Spectre.Prism.Adapters.OpenAI do
   end
 
   @impl Spectre.LLM
-  def complete(prompt, opts \\ []) when is_binary(prompt) and is_list(opts) do
-    prompt |> Prompt.parts() |> complete_parts(opts)
-  end
+  def complete(prompt, opts \\ [])
 
-  @impl Spectre.LLM
-  def complete_plan(%Spectre.Prompt.Plan{} = plan, opts) when is_list(opts) do
-    plan |> Prompt.parts() |> complete_parts(opts)
-  end
-
-  @impl Spectre.Classifier.Embedding
-  def load(model, opts \\ []) when is_binary(model) and is_list(opts) do
-    case Keyword.get(opts, :dimensions, Map.get(@embedding_dimensions, model)) do
-      dimensions when is_integer(dimensions) and dimensions > 0 ->
-        {:ok, dimensions}
-
-      _unknown ->
-        with {:ok, vector} <- embed("dimension probe", Keyword.put(opts, :model, model)) do
-          {:ok, length(vector)}
-        end
+  def complete(prompt, opts) when is_binary(prompt) do
+    with :ok <- Client.validate_options(@provider, opts) do
+      prompt |> Prompt.parts() |> complete_parts(opts)
     end
   end
 
+  def complete(_prompt, _opts),
+    do: {:error, Error.configuration(@provider, :invalid_prompt)}
+
+  @impl Spectre.LLM
+  def complete_plan(%Spectre.Prompt.Plan{} = plan, opts) do
+    with :ok <- Client.validate_options(@provider, opts),
+         :ok <- Client.validate_prompt_plan(@provider, plan) do
+      plan |> Prompt.parts() |> complete_parts(opts)
+    end
+  end
+
+  def complete_plan(_plan, _opts),
+    do: {:error, Error.configuration(@provider, :invalid_prompt_plan)}
+
   @impl Spectre.Classifier.Embedding
-  def download(model, opts \\ []) when is_binary(model) and is_list(opts),
-    do: load(model, opts)
+  def load(model, opts \\ [])
+
+  def load(model, opts) when is_binary(model) and model != "" do
+    with :ok <- Client.validate_options(@provider, opts) do
+      load_dimensions(model, opts)
+    end
+  end
+
+  def load(_model, _opts), do: {:error, Error.configuration(@provider, :invalid_model)}
+
+  @impl Spectre.Classifier.Embedding
+  def download(model, opts \\ []), do: load(model, opts)
+
+  @spec load_dimensions(String.t(), keyword()) :: {:ok, pos_integer()} | {:error, term()}
+  defp load_dimensions(model, opts) do
+    case Client.dimensions(@provider, opts, Map.get(@embedding_dimensions, model)) do
+      :probe -> probe_dimensions(model, opts)
+      result -> result
+    end
+  end
+
+  @spec probe_dimensions(String.t(), keyword()) :: {:ok, pos_integer()} | {:error, term()}
+  defp probe_dimensions(model, opts) do
+    with {:ok, vector} <- embed("dimension probe", Keyword.put(opts, :model, model)) do
+      {:ok, length(vector)}
+    end
+  end
 
   @impl Spectre.Classifier.Embedding
   def embed(input, opts \\ [])
 
-  def embed(text, opts) when is_binary(text) and is_list(opts) do
-    with {:ok, [vector]} <- request_embeddings(text, 1, opts), do: {:ok, vector}
+  def embed(text, opts) when is_binary(text) and text != "" do
+    with :ok <- Client.validate_options(@provider, opts),
+         {:ok, [vector]} <- request_embeddings(text, 1, opts),
+         do: {:ok, vector}
   end
 
-  def embed(texts, opts) when is_list(texts) and is_list(opts) do
-    if texts != [] and Enum.all?(texts, &is_binary/1) do
-      request_embeddings(texts, length(texts), opts)
-    else
-      {:error, Error.configuration(@provider, :invalid_embedding_input)}
+  def embed(texts, opts) when is_list(texts) do
+    with :ok <- Client.validate_options(@provider, opts) do
+      if texts != [] and Enum.all?(texts, &(is_binary(&1) and &1 != "")) do
+        request_embeddings(texts, length(texts), opts)
+      else
+        {:error, Error.configuration(@provider, :invalid_embedding_input)}
+      end
     end
   end
+
+  def embed(_input, _opts),
+    do: {:error, Error.configuration(@provider, :invalid_embedding_input)}
 
   @spec request_embeddings(String.t() | [String.t()], pos_integer(), keyword()) ::
           {:ok, [[float()]]} | {:error, Error.t()}
@@ -117,7 +149,7 @@ defmodule Spectre.Prism.Adapters.OpenAI do
              embedding_body(input, opts),
              opts
            ) do
-      embedding_vectors(body, expected_count)
+      Client.embedding_vectors(@provider, body, expected_count)
     end
   end
 
@@ -229,53 +261,15 @@ defmodule Spectre.Prism.Adapters.OpenAI do
 
   defp output_text(_output), do: nil
 
-  @spec embedding_vectors(term(), pos_integer()) :: {:ok, [[float()]]} | {:error, Error.t()}
-  defp embedding_vectors(%{"data" => data}, expected_count)
-       when is_list(data) and data != [] do
-    vectors =
-      data
-      |> Enum.sort_by(&embedding_entry_index/1)
-      |> Enum.map(&embedding_entry_vector/1)
-
-    cond do
-      Enum.any?(vectors, &is_nil/1) ->
-        {:error, Error.invalid_response(@provider, :invalid_embedding_vector)}
-
-      length(vectors) != expected_count ->
-        {:error, Error.invalid_response(@provider, :embedding_count_mismatch)}
-
-      true ->
-        {:ok, vectors}
-    end
-  end
-
-  defp embedding_vectors(body, _expected_count) when is_map(body) do
-    case Client.provider_error(body) do
-      nil -> {:error, Error.invalid_response(@provider, :missing_embedding_vector)}
-      error -> {:error, Error.provider(@provider, Client.provider_error_code(error))}
-    end
-  end
-
-  defp embedding_vectors(_body, _expected_count),
-    do: {:error, Error.invalid_response(@provider, :embedding_response_not_an_object)}
-
-  @spec embedding_entry_index(term()) :: non_neg_integer()
-  defp embedding_entry_index(%{"index" => index}) when is_integer(index), do: index
-  defp embedding_entry_index(_entry), do: 0
-
-  @spec embedding_entry_vector(term()) :: [float()] | nil
-  defp embedding_entry_vector(%{"embedding" => vector}) when is_list(vector) and vector != [] do
-    if Enum.all?(vector, &is_number/1), do: Enum.map(vector, &(&1 / 1))
-  end
-
-  defp embedding_entry_vector(_entry), do: nil
-
   @spec usage(term()) :: map()
   defp usage(usage) when is_map(usage) do
+    input = Client.token_count(usage, "input_tokens")
+    output = Client.token_count(usage, "output_tokens")
+
     %{
-      input_tokens: Map.get(usage, "input_tokens", 0),
-      output_tokens: Map.get(usage, "output_tokens", 0),
-      total_tokens: Map.get(usage, "total_tokens", 0)
+      input_tokens: input,
+      output_tokens: output,
+      total_tokens: Client.token_count(usage, "total_tokens", input + output)
     }
   end
 

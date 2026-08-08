@@ -62,31 +62,60 @@ defmodule Spectre.Prism.Adapters.Ollama do
   end
 
   @impl Spectre.LLM
-  def complete(prompt, opts \\ []) when is_binary(prompt) and is_list(opts) do
-    prompt |> Prompt.parts() |> complete_parts(opts)
+  def complete(prompt, opts \\ [])
+
+  def complete(prompt, opts) when is_binary(prompt) do
+    with :ok <- Client.validate_options(@provider, opts) do
+      prompt |> Prompt.parts() |> complete_parts(opts)
+    end
   end
+
+  def complete(_prompt, _opts),
+    do: {:error, Error.configuration(@provider, :invalid_prompt)}
 
   @impl Spectre.LLM
-  def complete_plan(%Spectre.Prompt.Plan{} = plan, opts) when is_list(opts) do
-    plan |> Prompt.parts() |> complete_parts(opts)
+  def complete_plan(%Spectre.Prompt.Plan{} = plan, opts) do
+    with :ok <- Client.validate_options(@provider, opts),
+         :ok <- Client.validate_prompt_plan(@provider, plan) do
+      plan |> Prompt.parts() |> complete_parts(opts)
+    end
   end
 
-  @impl Spectre.Classifier.Embedding
-  def load(model, opts \\ []) when is_binary(model) and is_list(opts) do
-    case Keyword.get(opts, :dimensions) do
-      dimensions when is_integer(dimensions) and dimensions > 0 ->
-        {:ok, dimensions}
+  def complete_plan(_plan, _opts),
+    do: {:error, Error.configuration(@provider, :invalid_prompt_plan)}
 
-      _unknown ->
-        with {:ok, vector} <- embed("dimension probe", Keyword.put(opts, :model, model)) do
-          {:ok, length(vector)}
-        end
+  @impl Spectre.Classifier.Embedding
+  def load(model, opts \\ [])
+
+  def load(model, opts) when is_binary(model) and model != "" do
+    with :ok <- Client.validate_options(@provider, opts) do
+      load_dimensions(model, opts)
+    end
+  end
+
+  def load(_model, _opts), do: {:error, Error.configuration(@provider, :invalid_model)}
+
+  @spec load_dimensions(String.t(), keyword()) :: {:ok, pos_integer()} | {:error, term()}
+  defp load_dimensions(model, opts) do
+    case Client.dimensions(@provider, opts, nil) do
+      :probe -> probe_dimensions(model, opts)
+      result -> result
+    end
+  end
+
+  @spec probe_dimensions(String.t(), keyword()) :: {:ok, pos_integer()} | {:error, term()}
+  defp probe_dimensions(model, opts) do
+    with {:ok, vector} <- embed("dimension probe", Keyword.put(opts, :model, model)) do
+      {:ok, length(vector)}
     end
   end
 
   @impl Spectre.Classifier.Embedding
-  def download(model, opts \\ []) when is_binary(model) and is_list(opts) do
-    with {:ok, _body, _headers} <-
+  def download(model, opts \\ [])
+
+  def download(model, opts) when is_binary(model) and model != "" do
+    with :ok <- Client.validate_options(@provider, opts),
+         {:ok, _body, _headers} <-
            Client.post(
              @provider,
              Client.url(Keyword.get(opts, :base_url, @base_url), "/api/pull"),
@@ -98,9 +127,14 @@ defmodule Spectre.Prism.Adapters.Ollama do
     end
   end
 
+  def download(_model, _opts), do: {:error, Error.configuration(@provider, :invalid_model)}
+
   @impl Spectre.Classifier.Embedding
-  def embed(text, opts \\ []) when is_binary(text) and is_list(opts) do
-    with {:ok, body, _headers} <-
+  def embed(text, opts \\ [])
+
+  def embed(text, opts) when is_binary(text) and text != "" do
+    with :ok <- Client.validate_options(@provider, opts),
+         {:ok, body, _headers} <-
            Client.post(
              @provider,
              Client.url(Keyword.get(opts, :base_url, @base_url), "/api/embed"),
@@ -111,6 +145,9 @@ defmodule Spectre.Prism.Adapters.Ollama do
       embedding_vector(body)
     end
   end
+
+  def embed(_text, _opts),
+    do: {:error, Error.configuration(@provider, :invalid_embedding_input)}
 
   @spec complete_parts(Prompt.parts(), keyword()) :: {:ok, Response.t()} | {:error, term()}
   defp complete_parts(parts, opts) do
@@ -192,8 +229,8 @@ defmodule Spectre.Prism.Adapters.Ollama do
   @spec build_response(map()) :: {:ok, Response.t()} | {:error, Error.t()}
   defp build_response(%{"message" => %{"content" => text}} = body)
        when is_binary(text) and text != "" do
-    prompt_tokens = Map.get(body, "prompt_eval_count", 0)
-    output_tokens = Map.get(body, "eval_count", 0)
+    prompt_tokens = Client.token_count(body, "prompt_eval_count")
+    output_tokens = Client.token_count(body, "eval_count")
 
     {:ok,
      Response.new(%{
