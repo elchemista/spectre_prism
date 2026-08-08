@@ -12,8 +12,7 @@ The exact `0.2.0` compatibility surface is published in the
 ## 0.2.0 Spectre Compatibility
 
 Version `0.2.0` aligns Prism's package, inference selector, and Stack contracts
-with the current Spectre `main` branch without imposing a Hex version
-requirement. Prism still makes a fail-closed capability selection;
+with the Spectre `0.2.0` GitHub tag. Prism still makes a fail-closed capability selection;
 provider execution, Runs, operational loops, and persistence remain owned by
 the core and host application.
 
@@ -22,9 +21,8 @@ the core and host application.
 Version `0.1.6` is a consolidation-only release with no new runtime feature and
 no intentional breaking change. Elixir 1.19 on Erlang/OTP 28 is the initially
 guaranteed pair. Uniform CI runs format, warnings-as-errors compilation, tests,
-non-strict Credo, Dialyzer, ExDoc, and local package validation with no
-publication. The changelog,
-Apache-2.0 license, package metadata, and explicit API manifest complete the
+non-strict Credo, Dialyzer, and ExDoc. The changelog, Apache-2.0 license, and
+explicit API manifest complete the
 release boundary before `0.2.0` development begins.
 
 ## Installation
@@ -34,10 +32,12 @@ The project is distributed from GitHub:
 ```elixir
 def deps do
   [
-    {:spectre_prism, github: "elchemista/spectre_prism"}
+    {:spectre_prism, github: "elchemista/spectre_prism", tag: "v0.2.0"}
   ]
 end
 ```
+
+Spectre Prism is distributed exclusively from GitHub; there is no Hex package.
 
 ## Stack
 
@@ -101,6 +101,27 @@ An `api_key:` is deliberately rejected from compiled provider parameters; Agent
 and Stack configuration must not retain secrets. Use the environment variables
 above, select another variable with `api_key_env:`, or pass runtime provider
 options at the Spectre call boundary.
+
+Catalog and provider configuration is recursively checked before it enters a
+Stack. Functions, processes, ports, references, credential headers, tokens,
+passwords, and secret keys are rejected; those values belong at the runtime
+call boundary only.
+
+The bundled transport validates HTTP(S) URLs and headers before connecting.
+Base URLs cannot contain userinfo, a query, or a fragment, and Gemini endpoint
+segments are percent-encoded. Runtime transport limits can be configured with
+positive values:
+
+```elixir
+http_timeout: 60_000,
+connect_timeout: 10_000,
+max_response_bytes: 16_000_000,
+follow_redirects: false
+```
+
+Non-JSON error bodies are never retained in adapter errors. Their HTTP status
+is preserved for retry decisions, while only a short stable provider error code
+may cross the adapter boundary.
 
 Models, classifier selection, embeddings, endpoints, and other non-secret
 provider parameters are configurable in the optional third argument. Profile

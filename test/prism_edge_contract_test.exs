@@ -5,6 +5,40 @@ defmodule Spectre.Prism.EdgeContractTest.Provider do
   def generate(_prompt, _opts), do: {:ok, "generated"}
 end
 
+defmodule Spectre.Prism.EdgeContractTest.InvalidResultSelector do
+  @behaviour Spectre.Inference.Selector
+
+  @impl true
+  def select(_request, _profiles, _context, _opts), do: :invalid_selection
+end
+
+defmodule Spectre.Prism.EdgeContractTest.RaisingSelector do
+  @behaviour Spectre.Inference.Selector
+
+  @impl true
+  def select(_request, _profiles, _context, _opts), do: raise("selector failed")
+end
+
+defmodule Spectre.Prism.EdgeContractTest.InvalidResultAgent do
+  use Spectre.Agent
+  use Spectre.Prism
+
+  prism do
+    level(:fast, model: :fast)
+    selector(Spectre.Prism.EdgeContractTest.InvalidResultSelector)
+  end
+end
+
+defmodule Spectre.Prism.EdgeContractTest.RaisingSelectorAgent do
+  use Spectre.Agent
+  use Spectre.Prism
+
+  prism do
+    level(:fast, model: :fast)
+    selector(Spectre.Prism.EdgeContractTest.RaisingSelector)
+  end
+end
+
 defmodule Spectre.Prism.EdgeContractTest do
   use ExUnit.Case, async: true
 
@@ -254,6 +288,86 @@ defmodule Spectre.Prism.EdgeContractTest do
     assert_raise ArgumentError, ~r/requires rank/, fn ->
       Profile.new(:custom, model: :custom)
     end
+  end
+
+  test "extension compilation contains malformed and nonportable Stack data" do
+    for {field, value, reason} <- [
+          {:providers, :invalid, :invalid_prism_stack_providers},
+          {:models, :invalid, :invalid_prism_stack_models},
+          {:levels, :invalid, :invalid_prism_stack_levels},
+          {:purposes, :invalid, :invalid_prism_stack_purposes}
+        ] do
+      assert {:error, {^reason, ^value}} = compile_extension(%{field => value})
+    end
+
+    assert {:error, {:invalid_prism_model_declaration, :invalid}} =
+             compile_extension(%{models: [:invalid]})
+
+    assert {:error, {:invalid_prism_level_declaration, {:bad, %{model: :bad}}}} =
+             compile_extension(%{levels: [{:bad, %{model: :bad}}]})
+
+    assert {:error, {:invalid_prism_purpose_declaration, :bad}} =
+             compile_extension(%{levels: base_levels(), purposes: [:bad]})
+
+    assert {:error, {:invalid_prism_options, [:not_a_keyword]}} =
+             compile_extension(%{levels: base_levels(), options: [:not_a_keyword]})
+
+    assert {:error, :prism_configuration_must_be_portable} =
+             compile_extension(%{levels: base_levels(), options: [owner: self()]})
+
+    assert {:error, {:prism_provider_secret_must_be_runtime, :authorization}} =
+             compile_extension(%{
+               levels: base_levels(),
+               options: [headers: [authorization: "Bearer compiled-secret"]]
+             })
+
+    assert {:error, {:invalid_prism_selector, String}} =
+             compile_extension(%{levels: base_levels(), selector: String})
+
+    assert {:error, :prism_selector_options_must_be_portable} =
+             compile_extension(%{
+               levels: base_levels(),
+               selector: {Rules, [callback: fn -> :invalid end]}
+             })
+  end
+
+  test "flow and selector boundaries return errors instead of raising" do
+    {:ok, config} = compile_extension(%{levels: base_levels()})
+
+    assert {:error, {:invalid_prism_constraints, [{"minimum", :fast}]}} =
+             Extension.flow_constraints([prism: %{"minimum" => :fast}], config)
+
+    assert {:error, :prism_requires_at_least_one_profile} =
+             Adaptive.select(request([]), [], context(), [])
+
+    assert {:error, {:invalid_prism_selector_options, :invalid}} =
+             Rules.select(request([]), profiles(), context(), :invalid)
+
+    assert {:error, {:invalid_prism_selector_config, :invalid}} =
+             Rules.select(request([]), profiles(), context(), config: :invalid)
+
+    malformed_metadata = request(metadata: :invalid)
+
+    assert {:error, {:missing_model_for_profile, :balanced}} =
+             Rules.select(malformed_metadata, profiles(), context(), config: config)
+  end
+
+  test "public selection contains custom selector failures and invalid replies" do
+    request = request([])
+
+    assert {:error, {:invalid_prism_selector_result, :invalid_selection}} =
+             Spectre.Prism.select(
+               Spectre.Prism.EdgeContractTest.InvalidResultAgent,
+               request,
+               context()
+             )
+
+    assert {:error, {:prism_selector_failed, RuntimeError, "selector failed"}} =
+             Spectre.Prism.select(
+               Spectre.Prism.EdgeContractTest.RaisingSelectorAgent,
+               request,
+               context()
+             )
   end
 
   defp compile_stack(source) do

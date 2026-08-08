@@ -7,6 +7,7 @@ defmodule Spectre.Prism do
   Prism concept without introducing another Agent compiler.
   """
 
+  alias Spectre.Inference.Selection
   alias Spectre.Stack.DSL
 
   @version "0.2.0"
@@ -140,9 +141,38 @@ defmodule Spectre.Prism do
   def select(agent, request, ctx) do
     with {:ok, config} <- config(agent) do
       {selector, opts} = config.selector
-      selector.select(request, config.profiles, ctx, Keyword.put(opts, :config, config))
+
+      selector
+      |> call_selector(request, config.profiles, ctx, Keyword.put(opts, :config, config))
+      |> normalize_selection()
     end
   end
+
+  @spec call_selector(module(), term(), list(), term(), keyword()) :: term()
+  defp call_selector(selector, request, profiles, ctx, opts) do
+    if Code.ensure_loaded?(selector) and function_exported?(selector, :select, 4) do
+      selector.select(request, profiles, ctx, opts)
+    else
+      {:error, {:invalid_prism_selector, selector}}
+    end
+  rescue
+    exception ->
+      {:error, {:prism_selector_failed, exception.__struct__, Exception.message(exception)}}
+  catch
+    kind, reason -> {:error, {:prism_selector_failed, kind, reason}}
+  end
+
+  @spec normalize_selection(term()) ::
+          {:ok, Spectre.Inference.Selection.t()} | {:error, term()}
+  defp normalize_selection({:ok, selection}) do
+    {:ok, Selection.new(selection)}
+  rescue
+    exception ->
+      {:error, {:invalid_prism_selection, exception.__struct__, Exception.message(exception)}}
+  end
+
+  defp normalize_selection({:error, _reason} = error), do: error
+  defp normalize_selection(other), do: {:error, {:invalid_prism_selector_result, other}}
 
   @impl Spectre.Stack.Installable
   def compile(opts, block, caller) do

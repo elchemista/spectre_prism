@@ -6,6 +6,27 @@ defmodule Spectre.Prism.Selector do
   alias Spectre.Inference.Selection
   alias Spectre.Prism.Config
 
+  @doc false
+  @spec config(term(), term()) :: {:ok, Config.t()} | {:error, term()}
+  def config(opts, profiles) do
+    cond do
+      not is_list(opts) or not Keyword.keyword?(opts) ->
+        {:error, {:invalid_prism_selector_options, opts}}
+
+      not is_list(profiles) ->
+        {:error, {:invalid_prism_profiles, profiles}}
+
+      is_nil(Keyword.get(opts, :config)) ->
+        {:ok, %Config{profiles: profiles}}
+
+      match?(%Config{}, Keyword.get(opts, :config)) ->
+        {:ok, Keyword.fetch!(opts, :config)}
+
+      true ->
+        {:error, {:invalid_prism_selector_config, Keyword.get(opts, :config)}}
+    end
+  end
+
   @spec constraints(Spectre.Inference.Request.t(), Config.t()) :: Constraints.t()
   def constraints(request, %Config{} = config) do
     purpose = Map.get(config.purposes, request.purpose, [])
@@ -19,7 +40,7 @@ defmodule Spectre.Prism.Selector do
           {[Profile.t()], Constraints.t()}
   def candidates(request, profiles, config) do
     constraints = constraints(request, config)
-    previous = MapSet.new(Map.get(request.metadata, :previous_levels, []))
+    previous = request.metadata |> previous_levels() |> MapSet.new()
 
     candidates =
       profiles
@@ -114,7 +135,7 @@ defmodule Spectre.Prism.Selector do
 
   @spec resolve_model(term(), Spectre.Inference.Request.t()) :: term()
   defp resolve_model(:agent_default, request),
-    do: Map.get(request.metadata, :agent_model) || Map.get(request.metadata, :model)
+    do: metadata_value(request.metadata, :agent_model) || metadata_value(request.metadata, :model)
 
   defp resolve_model(model, _request), do: model
 
@@ -135,5 +156,22 @@ defmodule Spectre.Prism.Selector do
       :maximum_cost_tier,
       :strict?
     ])
+  end
+
+  @spec previous_levels(term()) :: [term()]
+  defp previous_levels(metadata) do
+    case Map.get(metadata, :previous_levels, []) do
+      levels when is_list(levels) -> levels
+      _invalid -> []
+    end
+  rescue
+    BadMapError -> []
+  end
+
+  @spec metadata_value(term(), atom()) :: term()
+  defp metadata_value(metadata, key) do
+    Map.get(metadata, key)
+  rescue
+    BadMapError -> nil
   end
 end

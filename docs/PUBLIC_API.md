@@ -2,7 +2,7 @@
 
 This file is the normative public API manifest for Spectre Prism `0.2.0`. It
 retains the recoverable `0.1.6` surface while aligning the package and Stack
-contracts with the current Spectre `main` branch. Compatibility guarantees
+contracts with the Spectre GitHub `0.2.0` tag. Compatibility guarantees
 apply only to the modules and callables listed below. Any module, function,
 macro, or callback not listed here is an implementation detail even when it is
 exported or visible in generated docs.

@@ -26,12 +26,22 @@ defmodule Spectre.Prism.Registry do
   ]
 
   @secret_option_names [
-    "api-key",
+    "apikey",
     "authorization",
-    "proxy-authorization",
-    "x-api-key",
-    "x-goog-api-key"
+    "proxyauthorization",
+    "xapikey",
+    "xgoogapikey",
+    "accesstoken",
+    "authtoken",
+    "bearertoken",
+    "clientsecret",
+    "password",
+    "secret",
+    "secretkey",
+    "token"
   ]
+
+  @max_portable_depth 64
 
   defstruct registrations: [],
             classifier: nil,
@@ -137,7 +147,8 @@ defmodule Spectre.Prism.Registry do
          {:ok, options} <- adapter_options(catalog, opts),
          {:ok, profiles, levels} <- profiles(id, adapter, catalog, options, opts),
          {:ok, classifier} <- classifier_selection(catalog, levels, opts),
-         {:ok, embedding} <- embedding_selection(catalog, opts) do
+         {:ok, embedding} <- embedding_selection(catalog, opts),
+         :ok <- validate_selected_embedding(adapter, embedding) do
       {:ok,
        %Registration{
          id: id,
@@ -165,8 +176,11 @@ defmodule Spectre.Prism.Registry do
       not Keyword.keyword?(opts) ->
         {:error, {:invalid_prism_provider_options, opts}}
 
-      secret = secret_option(opts) ->
+      secret = runtime_secret(opts) ->
         {:error, {:prism_provider_secret_must_be_runtime, secret}}
+
+      not portable_config?(opts) ->
+        {:error, :prism_provider_options_must_be_portable}
 
       true ->
         :ok
@@ -192,6 +206,8 @@ defmodule Spectre.Prism.Registry do
       {:error,
        {:invalid_prism_provider_catalog, adapter, exception.__struct__,
         Exception.message(exception)}}
+  catch
+    kind, reason -> {:error, {:invalid_prism_provider_catalog, adapter, kind, reason}}
   end
 
   @spec validate_catalog(module(), term()) :: {:ok, map()} | {:error, term()}
@@ -199,7 +215,9 @@ defmodule Spectre.Prism.Registry do
     options = Map.get(catalog, :options, [])
     embedding = Map.get(catalog, :embedding)
 
-    with :ok <- validate_catalog_profiles(adapter, profiles),
+    with :ok <- validate_catalog_secrets(catalog),
+         :ok <- validate_catalog_portability(adapter, catalog),
+         :ok <- validate_catalog_profiles(adapter, profiles),
          :ok <- validate_catalog_options(adapter, options),
          :ok <- validate_completion_callback(adapter),
          :ok <- validate_catalog_embedding(adapter, embedding) do
@@ -209,6 +227,21 @@ defmodule Spectre.Prism.Registry do
 
   defp validate_catalog(adapter, _catalog),
     do: {:error, {:invalid_prism_provider_catalog, adapter}}
+
+  @spec validate_catalog_secrets(map()) :: :ok | {:error, term()}
+  defp validate_catalog_secrets(catalog) do
+    case runtime_secret(catalog) do
+      nil -> :ok
+      secret -> {:error, {:prism_provider_secret_must_be_runtime, secret}}
+    end
+  end
+
+  @spec validate_catalog_portability(module(), map()) :: :ok | {:error, term()}
+  defp validate_catalog_portability(adapter, catalog) do
+    if portable_config?(catalog),
+      do: :ok,
+      else: {:error, {:nonportable_prism_provider_catalog, adapter}}
+  end
 
   @spec validate_catalog_profiles(module(), list()) :: :ok | {:error, term()}
   defp validate_catalog_profiles(adapter, []),
@@ -356,15 +389,20 @@ defmodule Spectre.Prism.Registry do
   @spec compile_profiles(term(), module(), list(), map(), keyword()) ::
           {:ok, list()} | {:error, term()}
   defp compile_profiles(provider_id, adapter, selected, overrides, options) do
-    Enum.reduce_while(selected, {:ok, []}, fn {source, target, profile_opts}, {:ok, result} ->
+    selected
+    |> Enum.reduce_while({:ok, []}, fn {source, target, profile_opts}, {:ok, result} ->
       with {:ok, profile_opts} <- apply_model_override(profile_opts, Map.get(overrides, source)),
            {:ok, compiled} <-
              compile_profile(provider_id, adapter, source, target, profile_opts, options) do
-        {:cont, {:ok, result ++ [compiled]}}
+        {:cont, {:ok, [compiled | result]}}
       else
         {:error, _reason} = error -> {:halt, error}
       end
     end)
+    |> case do
+      {:ok, compiled} -> {:ok, Enum.reverse(compiled)}
+      {:error, _reason} = error -> error
+    end
   end
 
   @spec apply_model_override(keyword(), term()) :: {:ok, keyword()} | {:error, term()}
@@ -454,6 +492,16 @@ defmodule Spectre.Prism.Registry do
     end
   end
 
+  @spec validate_selected_embedding(module(), term()) :: :ok | {:error, term()}
+  defp validate_selected_embedding(_adapter, selection) when selection in [:auto, false],
+    do: :ok
+
+  defp validate_selected_embedding(adapter, _selection) do
+    if function_exported?(adapter, :load, 2) and function_exported?(adapter, :embed, 2),
+      do: :ok,
+      else: {:error, {:missing_prism_provider_embedding_callbacks, adapter}}
+  end
+
   @spec ensure_level(term(), map(), atom()) :: {:ok, term()} | {:error, term()}
   defp ensure_level(level, levels, kind) do
     if Map.has_key?(levels, level),
@@ -504,11 +552,14 @@ defmodule Spectre.Prism.Registry do
 
   @spec auto_embedding([Registration.t()]) ::
           {:ok, {module(), keyword()} | nil} | {:error, term()}
-  defp auto_embedding([%Registration{embedding: :auto} = registration]) do
-    resolve_embedding(registration, :auto)
+  defp auto_embedding(registrations) do
+    registrations
+    |> Enum.filter(&(&1.embedding == :auto and not is_nil(&1.default_embedding)))
+    |> case do
+      [registration] -> resolve_embedding(registration, :auto)
+      _none_or_ambiguous -> {:ok, nil}
+    end
   end
-
-  defp auto_embedding(_registrations), do: {:ok, nil}
 
   @spec resolve_embedding(Registration.t(), term()) ::
           {:ok, {module(), keyword()} | nil} | {:error, term()}
@@ -555,11 +606,14 @@ defmodule Spectre.Prism.Registry do
 
   @spec auto_classifier([Registration.t()]) ::
           {:ok, term() | nil, term() | nil} | {:error, term()}
-  defp auto_classifier([%Registration{classifier: :auto} = registration]) do
-    resolve_classifier(registration, :auto)
+  defp auto_classifier(registrations) do
+    registrations
+    |> Enum.filter(&(&1.classifier == :auto and not is_nil(&1.default_classifier)))
+    |> case do
+      [registration] -> resolve_classifier(registration, :auto)
+      _none_or_ambiguous -> {:ok, nil, nil}
+    end
   end
-
-  defp auto_classifier(_registrations), do: {:ok, nil, nil}
 
   @spec resolve_classifier(Registration.t(), term()) ::
           {:ok, term() | nil, term() | nil} | {:error, term()}
@@ -623,36 +677,62 @@ defmodule Spectre.Prism.Registry do
     end
   end
 
-  @spec secret_option(term()) :: term() | nil
-  defp secret_option(values) when is_list(values) do
+  @doc false
+  @spec runtime_secret(term()) :: term() | nil
+  def runtime_secret(values) when is_list(values) do
     Enum.find_value(values, fn
-      {key, value} -> if(secret_key?(key), do: key, else: secret_option(value))
-      value -> secret_option(value)
+      {key, value} -> if(secret_key?(key), do: key, else: runtime_secret(value))
+      value -> runtime_secret(value)
     end)
   end
 
-  defp secret_option(values) when is_map(values) do
+  def runtime_secret(values) when is_map(values) do
     values
     |> Map.to_list()
-    |> secret_option()
+    |> runtime_secret()
   end
 
-  defp secret_option(value) when is_tuple(value) do
+  def runtime_secret(value) when is_tuple(value) do
     value
     |> Tuple.to_list()
-    |> secret_option()
+    |> runtime_secret()
   end
 
-  defp secret_option(_value), do: nil
+  def runtime_secret(_value), do: nil
 
   @spec secret_key?(term()) :: boolean()
   defp secret_key?(key) when is_atom(key) or is_binary(key) do
     key
     |> to_string()
     |> String.downcase()
-    |> String.replace("_", "-")
+    |> String.replace(~r/[^a-z0-9]/u, "")
     |> then(&(&1 in @secret_option_names))
   end
 
   defp secret_key?(_key), do: false
+
+  @doc false
+  @spec portable_config?(term()) :: boolean()
+  def portable_config?(value), do: portable?(value, 0)
+
+  @spec portable?(term(), non_neg_integer()) :: boolean()
+  defp portable?(_value, depth) when depth > @max_portable_depth, do: false
+
+  defp portable?(value, _depth)
+       when is_atom(value) or is_binary(value) or is_number(value),
+       do: true
+
+  defp portable?(value, depth) when is_list(value),
+    do: Enum.all?(value, &portable?(&1, depth + 1))
+
+  defp portable?(value, depth) when is_tuple(value),
+    do: value |> Tuple.to_list() |> Enum.all?(&portable?(&1, depth + 1))
+
+  defp portable?(value, depth) when is_map(value) do
+    Enum.all?(value, fn {key, item} ->
+      portable?(key, depth + 1) and portable?(item, depth + 1)
+    end)
+  end
+
+  defp portable?(_value, _depth), do: false
 end

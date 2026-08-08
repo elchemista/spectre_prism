@@ -11,26 +11,33 @@ defmodule Spectre.Prism.Selector.Adaptive do
 
   @impl true
   def select(request, profiles, _ctx, opts) do
-    config = Keyword.get(opts, :config, %Config{profiles: profiles})
-    request = adapt_preference(request, profiles, config)
-    {candidates, constraints} = Selector.candidates(request, profiles, config)
+    with {:ok, config} <- Selector.config(opts, profiles),
+         :ok <- ensure_profiles(profiles) do
+      request = adapt_preference(request, profiles, config)
+      {candidates, constraints} = Selector.candidates(request, profiles, config)
 
-    reason =
-      cond do
-        request.attempt > 1 -> :compatible_fallback
-        constraints.risk == :high -> :high_risk
-        length(request.modalities) > 1 -> :multimodal
-        true -> :adaptive_preference
-      end
+      reason =
+        cond do
+          request.attempt > 1 -> :compatible_fallback
+          constraints.risk == :high -> :high_risk
+          length(request.modalities) > 1 -> :multimodal
+          true -> :adaptive_preference
+        end
 
-    Selector.choose(
-      request,
-      candidates,
-      constraints,
-      config,
-      __MODULE__,
-      Keyword.put(opts, :reason, reason)
-    )
+      Selector.choose(
+        request,
+        candidates,
+        constraints,
+        config,
+        __MODULE__,
+        Keyword.put(opts, :reason, reason)
+      )
+    end
+  rescue
+    exception ->
+      {:error, {:prism_selection_failed, exception.__struct__, Exception.message(exception)}}
+  catch
+    kind, reason -> {:error, {:prism_selection_failed, kind, reason}}
   end
 
   @spec adapt_preference(Spectre.Inference.Request.t(), list(), Config.t()) ::
@@ -61,4 +68,8 @@ defmodule Spectre.Prism.Selector.Adaptive do
 
   @spec highest_id(list()) :: term()
   defp highest_id(profiles), do: profiles |> Enum.max_by(& &1.rank) |> Map.fetch!(:id)
+
+  @spec ensure_profiles(list()) :: :ok | {:error, :prism_requires_at_least_one_profile}
+  defp ensure_profiles([]), do: {:error, :prism_requires_at_least_one_profile}
+  defp ensure_profiles(_profiles), do: :ok
 end

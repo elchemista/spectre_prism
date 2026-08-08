@@ -21,15 +21,50 @@ All notable changes to Spectre Prism are documented in this file.
 - Spectre's per-inference `intelligence: :fast | :balanced | :deep` contract is
   unchanged. Existing two-argument `provider`, `model`, and `level`
   declarations remain supported.
-- Spectre is resolved directly from the GitHub `main` branch without a Hex
-  version requirement; `SPECTRE_PATH` remains available for local development.
+- Spectre is resolved directly from the GitHub `0.2.0` tag.
+
+### Changed
+
+- Made distribution GitHub-only by removing Hex package metadata and retaining
+  documentation-only release CI.
+
+### Fixed
+
+- Contained malformed provider replies, callback failures, selector failures,
+  invalid prompt plans, and non-keyword runtime options behind typed errors.
+- Preserved HTTP status and retry semantics for non-JSON provider errors and
+  validated timeout, redirect, response-size, URL, and header options before a
+  request is opened.
+- Enforced exact, unique batch embedding indexes, consistent vector dimensions,
+  positive configured dimensions, and numeric usage counters.
+- Kept the sole available automatic classifier and embedding when unrelated
+  providers are registered, while remaining fail-closed when multiple automatic
+  candidates are ambiguous.
+
+### Security
+
+- Rejected credentials and live runtime terms recursively from provider
+  declarations and adapter catalogs, including alternate credential key forms.
+- Blocked URL userinfo, fragments, header injection, unsafe endpoint segments,
+  and unbounded provider error codes from compiled or runtime adapter paths.
+
+### Performance
+
+- Replaced repeated list concatenation while compiling provider declarations
+  and profiles with linear accumulation and one final reversal.
+
+### Tests
+
+- Added real local-socket HTTP coverage plus malformed transport, catalog,
+  provider, embedding, and selector regression suites; project coverage now
+  clears the enforced 90% threshold.
 
 ## [0.2.0] - 2026-08-01
 
 ### Changed
 
-- Aligned the package, inference selector, and Stack contracts with the current
-  Spectre `main` branch without adding a Hex version requirement.
+- Aligned the package, inference selector, and Stack contracts with the
+  Spectre `0.2.0` GitHub tag.
 - Verified fail-closed profile selection and Agent integration against the
   Spectre 0.2.0 operational runtime.
 

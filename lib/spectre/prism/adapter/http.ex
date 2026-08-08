@@ -6,29 +6,102 @@ defmodule Spectre.Prism.Adapter.HTTP do
   @default_timeout 60_000
   @default_connect_timeout 10_000
   @default_max_response_bytes 16_000_000
+  @methods [:get, :post, :put, :patch, :delete]
 
   @impl true
-  def request(method, url, headers, body, opts)
-      when method in [:get, :post, :put, :patch, :delete] and is_binary(url) and
-             is_list(headers) and is_list(opts) do
-    with :ok <- validate_url(url),
+  def request(method, url, headers, body, opts) do
+    with :ok <- validate_request(method, headers, body, opts),
+         :ok <- validate_url(url),
          :ok <- ensure_applications(),
          {:ok, request} <- request_tuple(method, url, headers, body),
          {:ok, response} <- perform(method, request, url, opts) do
       normalize_response(response, opts)
     end
+  rescue
+    _exception -> {:error, :http_request_failed}
+  catch
+    _kind, _reason -> {:error, :http_request_failed}
   end
 
+  @doc false
   @spec validate_url(String.t()) :: :ok | {:error, :invalid_http_url}
-  defp validate_url(url) do
+  def validate_url(url) when is_binary(url) do
     case URI.parse(url) do
-      %URI{scheme: scheme, host: host}
-      when scheme in ["http", "https"] and is_binary(host) and host != "" ->
-        :ok
+      %URI{scheme: scheme, host: host, userinfo: nil, fragment: nil, port: port}
+      when scheme in ["http", "https"] and is_binary(host) and host != "" and
+             (is_nil(port) or port in 1..65_535) ->
+        if String.contains?(url, ["\r", "\n"]), do: {:error, :invalid_http_url}, else: :ok
 
       _invalid ->
         {:error, :invalid_http_url}
     end
+  rescue
+    _exception -> {:error, :invalid_http_url}
+  end
+
+  def validate_url(_url), do: {:error, :invalid_http_url}
+
+  @spec validate_request(term(), term(), term(), term()) :: :ok | {:error, term()}
+  defp validate_request(method, headers, body, opts) do
+    cond do
+      method not in @methods ->
+        {:error, :invalid_http_method}
+
+      not valid_headers?(headers) ->
+        {:error, :invalid_http_headers}
+
+      not is_map(body) and not is_list(body) and not is_nil(body) ->
+        {:error, :invalid_http_body}
+
+      not is_list(opts) or not Keyword.keyword?(opts) ->
+        {:error, :invalid_http_options}
+
+      true ->
+        validate_options(opts)
+    end
+  end
+
+  @spec validate_options(keyword()) :: :ok | {:error, term()}
+  defp validate_options(opts) do
+    with :ok <- positive_option(opts, :http_timeout, @default_timeout),
+         :ok <- positive_option(opts, :connect_timeout, @default_connect_timeout),
+         :ok <- positive_option(opts, :max_response_bytes, @default_max_response_bytes) do
+      case Keyword.get(opts, :follow_redirects, false) do
+        value when is_boolean(value) -> :ok
+        _invalid -> {:error, :invalid_follow_redirects}
+      end
+    end
+  end
+
+  @spec positive_option(keyword(), atom(), pos_integer()) :: :ok | {:error, term()}
+  defp positive_option(opts, key, default) do
+    case Keyword.get(opts, key, default) do
+      value when is_integer(value) and value > 0 -> :ok
+      _invalid -> {:error, invalid_positive_option(key)}
+    end
+  end
+
+  @spec invalid_positive_option(:http_timeout | :connect_timeout | :max_response_bytes) :: atom()
+  defp invalid_positive_option(:http_timeout), do: :invalid_http_timeout
+  defp invalid_positive_option(:connect_timeout), do: :invalid_connect_timeout
+  defp invalid_positive_option(:max_response_bytes), do: :invalid_max_response_bytes
+
+  @spec valid_headers?(term()) :: boolean()
+  defp valid_headers?(headers) when is_list(headers) do
+    Enum.all?(headers, fn
+      {name, value} when is_binary(name) and name != "" and is_binary(value) ->
+        valid_header_name?(name) and not String.contains?(value, ["\r", "\n"])
+
+      _invalid ->
+        false
+    end)
+  end
+
+  defp valid_headers?(_headers), do: false
+
+  @spec valid_header_name?(String.t()) :: boolean()
+  defp valid_header_name?(name) do
+    Regex.match?(~r/\A[!#$%&'*+.^_`|~0-9A-Za-z-]+\z/, name)
   end
 
   @spec ensure_applications() :: :ok | {:error, term()}
@@ -96,9 +169,6 @@ defmodule Spectre.Prism.Adapter.HTTP do
     max_bytes = Keyword.get(opts, :max_response_bytes, @default_max_response_bytes)
 
     cond do
-      not is_integer(max_bytes) or max_bytes <= 0 ->
-        {:error, :invalid_max_response_bytes}
-
       byte_size(body) > max_bytes ->
         {:error, :response_too_large}
 
@@ -107,8 +177,14 @@ defmodule Spectre.Prism.Adapter.HTTP do
 
       true ->
         case Jason.decode(body) do
-          {:ok, decoded} -> {:ok, status, decode_headers(headers), decoded}
-          {:error, _reason} -> {:error, :response_json_decode_failed}
+          {:ok, decoded} ->
+            {:ok, status, decode_headers(headers), decoded}
+
+          {:error, _reason} when status >= 200 and status < 300 ->
+            {:error, :response_json_decode_failed}
+
+          {:error, _reason} ->
+            {:ok, status, decode_headers(headers), nil}
         end
     end
   end

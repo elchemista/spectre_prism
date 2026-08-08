@@ -13,7 +13,6 @@ defmodule SpectrePrism.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       description: "Constraint-aware provider adapters and model selection for Spectre agents.",
-      package: package(),
       dialyzer: [plt_add_apps: [:mix]],
       docs: docs(),
       source_url: @source_url,
@@ -29,30 +28,11 @@ defmodule SpectrePrism.MixProject do
 
   defp deps do
     [
-      spectre_dep(),
+      {:spectre, github: "elchemista/spectre", tag: "0.2.0"},
       {:jason, "~> 1.4"},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
-    ]
-  end
-
-  defp spectre_dep do
-    case System.get_env("SPECTRE_PATH") do
-      path when is_binary(path) and path != "" ->
-        {:spectre, path: Path.expand(path)}
-
-      _other ->
-        {:spectre, github: "elchemista/spectre", branch: "main"}
-    end
-  end
-
-  defp package do
-    [
-      maintainers: ["elchemista"],
-      files: ~w(lib docs mix.exs README.md CHANGELOG.md LICENSE),
-      licenses: ["Apache-2.0"],
-      links: %{"GitHub" => @source_url}
     ]
   end
 
