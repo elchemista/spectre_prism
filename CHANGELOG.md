@@ -4,6 +4,8 @@ All notable changes to Spectre Prism are documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-13
+
 ### Added
 
 - Extended the existing Stack and Agent `provider` DSL to accept a Prism
@@ -21,15 +23,18 @@ All notable changes to Spectre Prism are documented in this file.
 - Spectre's per-inference `intelligence: :fast | :balanced | :deep` contract is
   unchanged. Existing two-argument `provider`, `model`, and `level`
   declarations remain supported.
-- Spectre is resolved directly from the GitHub `0.2.0` tag.
+- Spectre is resolved directly from the Hex package at `~> 0.3.0`.
 
 ### Changed
 
-- Made distribution GitHub-only by removing Hex package metadata and retaining
-  documentation-only release CI.
+- Retained GitHub-only distribution with no Hex package metadata.
+- Made strict Credo analysis part of the required CI quality job.
 
 ### Fixed
 
+- Materialized `:agent_default` against the Agent's declared model while
+  compiling immutable profiles, satisfying Spectre 0.3's exact selection
+  verification for normal calls and bounded fallbacks.
 - Contained malformed provider replies, callback failures, selector failures,
   invalid prompt plans, and non-keyword runtime options behind typed errors.
 - Preserved HTTP status and retry semantics for non-JSON provider errors and
@@ -108,7 +113,8 @@ All notable changes to Spectre Prism are documented in this file.
 - Asynchronous provider scheduling and continuity-plane lifecycle remain later
   migration phases.
 
-[Unreleased]: https://github.com/elchemista/spectre_prism/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/elchemista/spectre_prism/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/elchemista/spectre_prism/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/elchemista/spectre_prism/compare/v0.1.6...v0.2.0
 [0.1.6]: https://github.com/elchemista/spectre_prism/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/elchemista/spectre_prism/compare/v0.1.4...v0.1.5

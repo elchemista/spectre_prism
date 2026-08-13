@@ -30,9 +30,52 @@ defmodule Spectre.Prism.Extension do
 
   @impl true
   def compile(owner, opts) do
-    with {:ok, declarations} <- declarations(owner, opts) do
+    with {:ok, declarations} <- declarations(owner, opts),
+         {:ok, declarations} <- materialize_agent_default(declarations, owner) do
       compile_config(declarations)
     end
+  end
+
+  @spec materialize_agent_default(map(), module()) :: {:ok, map()} | {:error, atom()}
+  defp materialize_agent_default(%{levels: levels} = declarations, owner)
+       when is_list(levels) do
+    if Enum.any?(levels, &agent_default_level?/1) do
+      case configured_agent_model(owner) do
+        nil ->
+          {:error, :prism_agent_default_model_missing}
+
+        model ->
+          {:ok, %{declarations | levels: Enum.map(levels, &put_agent_default(&1, model))}}
+      end
+    else
+      {:ok, declarations}
+    end
+  end
+
+  @spec agent_default_level?(term()) :: boolean()
+  defp agent_default_level?({_id, opts}) when is_list(opts) do
+    Keyword.keyword?(opts) and Keyword.get(opts, :model) == :agent_default
+  end
+
+  defp agent_default_level?(_declaration), do: false
+
+  @spec put_agent_default(term(), term()) :: term()
+  defp put_agent_default({id, opts}, model) when is_list(opts) do
+    if Keyword.keyword?(opts) and Keyword.get(opts, :model) == :agent_default,
+      do: {id, Keyword.put(opts, :model, model)},
+      else: {id, opts}
+  end
+
+  defp put_agent_default(declaration, _model), do: declaration
+
+  @spec configured_agent_model(module()) :: term() | nil
+  defp configured_agent_model(owner) do
+    case Module.get_attribute(owner, :spectre_config) do
+      config when is_list(config) -> Keyword.get(config, :model)
+      _other -> nil
+    end
+  rescue
+    ArgumentError -> nil
   end
 
   @impl true

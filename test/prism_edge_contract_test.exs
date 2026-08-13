@@ -56,7 +56,7 @@ defmodule Spectre.Prism.EdgeContractTest do
   @provider Spectre.Prism.EdgeContractTest.Provider
 
   test "package compiler rejects duplicate and ambiguous declarations" do
-    assert Spectre.Prism.version() == "0.2.0"
+    assert Spectre.Prism.version() == "0.3.0"
 
     assert {:error, {:duplicate_prism_level, :fast}} =
              compile_stack("""
@@ -346,7 +346,7 @@ defmodule Spectre.Prism.EdgeContractTest do
     assert {:error, {:invalid_prism_selector_config, :invalid}} =
              Rules.select(request([]), profiles(), context(), config: :invalid)
 
-    malformed_metadata = request(metadata: :invalid)
+    malformed_metadata = %{request([]) | metadata: :invalid}
 
     assert {:error, {:missing_model_for_profile, :balanced}} =
              Rules.select(malformed_metadata, profiles(), context(), config: config)
