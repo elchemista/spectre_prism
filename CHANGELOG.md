@@ -28,7 +28,7 @@ All notable changes to Spectre Prism are documented in this file.
 ### Changed
 
 - Retained GitHub-only distribution with no Hex package metadata.
-- Made strict Credo analysis part of the required CI quality job.
+- Made default Credo analysis part of the required CI quality job.
 
 ### Fixed
 
