@@ -1,7 +1,7 @@
 defmodule SpectrePrism.MixProject do
   use Mix.Project
 
-  @version "0.2.0"
+  @version "0.3.0"
   @source_url "https://github.com/elchemista/spectre_prism"
 
   def project do
@@ -28,7 +28,7 @@ defmodule SpectrePrism.MixProject do
 
   defp deps do
     [
-      {:spectre, github: "elchemista/spectre", tag: "0.2.0"},
+      {:spectre, "~> 0.3.0"},
       {:jason, "~> 1.4"},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

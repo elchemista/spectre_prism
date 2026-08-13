@@ -123,6 +123,11 @@ defmodule Spectre.Prism.RuntimeTest do
   end
 
   test "route classification and response generation receive separate selections" do
+    assert {:ok, config} = Spectre.Prism.config(Agent)
+
+    assert Enum.find(config.profiles, &(&1.id == :balanced)).model ==
+             {Model, :complete, model: "balanced"}
+
     assert {:ok, result} = Spectre.ask(Agent, "not a regex", test_pid: self())
     assert result.route.label == :CLASSIFIED
     assert result.metadata.inference.selection.level == :balanced
