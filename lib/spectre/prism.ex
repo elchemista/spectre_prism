@@ -10,7 +10,7 @@ defmodule Spectre.Prism do
   alias Spectre.Inference.Selection
   alias Spectre.Stack.DSL
 
-  @version "0.3.0"
+  @version "0.1.0"
 
   use Spectre.Stack.Installable,
     id: :prism,

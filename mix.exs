@@ -1,7 +1,7 @@
 defmodule SpectrePrism.MixProject do
   use Mix.Project
 
-  @version "0.3.0"
+  @version "0.1.0"
   @source_url "https://github.com/elchemista/spectre_prism"
 
   def project do

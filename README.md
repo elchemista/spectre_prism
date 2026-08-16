@@ -6,24 +6,8 @@ Ollama, and the Gemini API. Prism enforces modality,
 context-window, privacy, minimum-level, cost, latency, and attempt constraints
 before a model is called.
 
-The exact `0.3.0` compatibility surface is published in the
+The supported surface is documented in the
 [public API manifest](docs/PUBLIC_API.md).
-
-## 0.3.0 Spectre Compatibility
-
-Version `0.3.0` aligns Prism's package, inference selector, and Stack contracts
-with Spectre `~> 0.3.0` from Hex. Prism still makes a fail-closed capability selection;
-provider execution, Runs, operational loops, and persistence remain owned by
-the core and host application.
-
-## 0.1.6 Recoverable Baseline
-
-Version `0.1.6` is a consolidation-only release with no new runtime feature and
-no intentional breaking change. Elixir 1.19 on Erlang/OTP 28 is the initially
-guaranteed pair. Uniform CI runs format, warnings-as-errors compilation, tests,
-non-strict Credo, Dialyzer, and ExDoc. The changelog, Apache-2.0 license, and
-explicit API manifest complete the
-release boundary before `0.2.0` development begins.
 
 ## Installation
 
@@ -33,7 +17,7 @@ The project is distributed from GitHub:
 def deps do
   [
     {:spectre, "~> 0.3.0"},
-    {:spectre_prism, github: "elchemista/spectre_prism", tag: "v0.3.0"}
+    {:spectre_prism, github: "elchemista/spectre_prism", branch: "main"}
   ]
 end
 ```
@@ -193,7 +177,7 @@ attempt limits remain fail-closed constraints. Provider clients and secrets
 are still supplied by the application; the compiled Stack contains only
 portable adapter configuration.
 
-With Spectre 0.3.0, that configuration is re-resolved for every
+That configuration is re-resolved for every
 `Spectre.Runtime.advance/2`. Prism selects inference capabilities inside the
 canonical Run step, while provider clients, adapter sessions, processes, and
 callbacks remain caller-owned and are never embedded in a `Spectre.Run`
@@ -216,7 +200,7 @@ advanced. Prism selects a compatible cognitive capability, but it does not
 create or look up Instances, enqueue Runs, retain Agent State, own the ready
 queue or Invocation registry, or schedule provider work. Multi-Run fairness
 and observable turn boundaries belong to Spectre core. Inference remains
-synchronous in 0.3.0; Prism does not create a second provider scheduler or
+synchronous; Prism does not create a second provider scheduler or
 continuity lifecycle.
 
 For an Agent-local configuration, `use Spectre.Prism` remains available:
