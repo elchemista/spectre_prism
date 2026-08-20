@@ -147,6 +147,31 @@ defmodule Spectre.Prism.ReqLLMAdaptersTest do
     assert Enum.map(Registry.profiles(custom), &elem(&1, 0)) == [:fast, :balanced, :deep]
   end
 
+  test "multiple providers can map catalog levels to unique profile identifiers" do
+    assert {:ok, registry} =
+             Registry.build([
+               {:anthropic, Anthropic,
+                levels: [fast: :claude_fast, balanced: :claude_balanced, deep: :claude_deep]},
+               {:deepseek, DeepSeek,
+                levels: [
+                  fast: :deepseek_fast,
+                  balanced: :deepseek_balanced,
+                  deep: :deepseek_deep
+                ]}
+             ])
+
+    assert Enum.map(Registry.profiles(registry), &elem(&1, 0)) == [
+             :claude_fast,
+             :claude_balanced,
+             :claude_deep,
+             :deepseek_fast,
+             :deepseek_balanced,
+             :deepseek_deep
+           ]
+
+    assert Registry.classifier(registry) == nil
+  end
+
   test "Anthropic maps ReqLLM responses and prompt plans to Spectre responses" do
     opts = [
       model: "claude-sonnet-4-6",
