@@ -351,16 +351,45 @@ defmodule Spectre.Prism.Registry do
   defp level_mappings(ids, nil), do: level_mappings(ids, :all)
 
   defp level_mappings(ids, levels) when is_list(levels) do
-    mappings = Enum.map(levels, &{&1, &1})
+    with {:ok, mappings} <- normalize_level_mappings(levels) do
+      unknown = Enum.find(mappings, fn {source, _target} -> source not in ids end)
+      duplicate = duplicate(Enum.map(mappings, &elem(&1, 0)))
 
-    case Enum.find(mappings, fn {source, _target} -> source not in ids end) do
-      nil -> {:ok, mappings}
-      {source, _target} -> {:error, {:unknown_prism_provider_level, source}}
+      cond do
+        not is_nil(unknown) ->
+          {:error, {:unknown_prism_provider_level, elem(unknown, 0)}}
+
+        not is_nil(duplicate) ->
+          {:error, {:duplicate_prism_provider_source_level, duplicate}}
+
+        true ->
+          {:ok, mappings}
+      end
     end
   end
 
   defp level_mappings(_ids, levels),
     do: {:error, {:invalid_prism_provider_levels, levels}}
+
+  @spec normalize_level_mappings(list()) ::
+          {:ok, [{term(), term()}]} | {:error, term()}
+  defp normalize_level_mappings(levels) do
+    levels
+    |> Enum.reduce_while({:ok, []}, fn
+      {source, target}, {:ok, mappings} when not is_nil(source) and not is_nil(target) ->
+        {:cont, {:ok, [{source, target} | mappings]}}
+
+      source, {:ok, mappings} when not is_nil(source) ->
+        {:cont, {:ok, [{source, source} | mappings]}}
+
+      invalid, _accumulator ->
+        {:halt, {:error, {:invalid_prism_provider_level_mapping, invalid}}}
+    end)
+    |> case do
+      {:ok, mappings} -> {:ok, Enum.reverse(mappings)}
+      {:error, _reason} = error -> error
+    end
+  end
 
   @spec model_overrides(list(), term()) :: {:ok, map()} | {:error, term()}
   defp model_overrides(_entries, []), do: {:ok, %{}}

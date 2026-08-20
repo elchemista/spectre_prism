@@ -1,8 +1,9 @@
 # Spectre Prism
 
 `spectre_prism` selects a cognitive profile for every Spectre inference
-request. It includes a provider-adapter registry for OpenAI, OpenRouter,
-Ollama, and the Gemini API. Prism enforces modality,
+request. It includes ready-to-use adapters for OpenAI, Anthropic Claude,
+Gemini, OpenRouter, Ollama, DeepSeek, Groq, xAI, Mistral, Cerebras, and local
+Bumblebee servings. Prism enforces modality,
 context-window, privacy, minimum-level, cost, latency, and attempt constraints
 before a model is called.
 
@@ -16,7 +17,7 @@ The project is distributed from GitHub:
 ```elixir
 def deps do
   [
-    {:spectre, "~> 0.3.0"},
+    {:spectre, "~> 0.3.2"},
     {:spectre_prism, github: "elchemista/spectre_prism", branch: "main"}
   ]
 end
@@ -26,17 +27,17 @@ Spectre Prism is distributed exclusively from GitHub; there is no Hex package.
 
 ## Stack
 
-The shortest setup passes a provider identifier and an adapter module. Prism
+The shortest setup names a bundled provider. Prism
 compiles the adapter catalog into the normal Spectre `:fast`, `:balanced`, and
 `:deep` intelligence levels, and contributes a default LLM classifier plus an
-embedding adapter:
+embedding adapter when that provider exposes one:
 
 ```elixir
 defmodule MyApp.AI do
   use Spectre.Stack
 
   install Spectre.Prism do
-    provider :openai, Spectre.Prism.Adapters.OpenAI
+    provider :openai
     default :balanced
   end
 end
@@ -56,9 +57,20 @@ per-inference level constraint:
 ask :answer, intelligence: :deep
 ```
 
-The provider identifier is application-owned; the second argument is always
-the module implementing `Spectre.Prism.Adapter` and `Spectre.LLM`. A third,
-optional keyword list configures that adapter.
+`provider :openai`, `provider :anthropic`, `provider :gemini`, and the other
+bundled identifiers resolve their adapter automatically. Common aliases
+`:claude`, `:google`, and `:grok` are accepted. Options can follow the provider
+directly:
+
+```elixir
+provider :deepseek,
+  models: [fast: "deepseek-chat", deep: "deepseek-v4-pro"],
+  classifier: :fast,
+  embedding: false
+```
+
+The explicit `provider :my_provider, MyApp.Adapter` form remains available for
+application-owned adapters.
 
 `classifier:` configures Spectre's `:llm_classifier` adapter. The selected
 embedding is also contributed to Spectre's `:embedding` router and to the
@@ -73,14 +85,33 @@ application-owned; registering a provider does not train one implicitly.
 | `Spectre.Prism.Adapters.OpenRouter` | OpenAI Luna route | OpenAI Terra route | OpenAI Sol route | OpenAI embedding route |
 | `Spectre.Prism.Adapters.Ollama` | `qwen3.5:0.8b` | `qwen3.5:9b` | `qwen3.5:35b` | `embeddinggemma` |
 | `Spectre.Prism.Adapters.Gemini` | `gemini-3.5-flash-lite` | `gemini-3.6-flash` | `gemini-3.5-flash` | `gemini-embedding-2` |
+| `Spectre.Prism.Adapters.Anthropic` | `claude-haiku-4-5` | `claude-sonnet-4-6` | `claude-opus-4-8` | — |
+| `Spectre.Prism.Adapters.DeepSeek` | `deepseek-chat` | `deepseek-reasoner` | `deepseek-v4-pro` | — |
+| `Spectre.Prism.Adapters.Groq` | `llama-3.1-8b-instant` | `qwen/qwen3-32b` | `openai/gpt-oss-120b` | — |
+| `Spectre.Prism.Adapters.XAI` | `grok-4-fast` | `grok-4.20-non-reasoning` | `grok-4.3` | — |
+| `Spectre.Prism.Adapters.Mistral` | `mistral-small-latest` | `mistral-medium-latest` | `mistral-large-latest` | `mistral-embed` |
+| `Spectre.Prism.Adapters.Cerebras` | `llama3.1-8b` | Qwen 3 235B | `gpt-oss-120b` | — |
+| `Spectre.Prism.Adapters.Bumblebee` | `local-small` | `local-medium` | `local-large` | explicit serving |
+
+Every hosted adapter and Ollama use the same ReqLLM bridge. ReqLLM owns each
+provider's wire format, authentication, request/response translation, retries,
+telemetry, and embedding API; Prism contributes the Spectre contracts and the
+fast, balanced, and deep policy catalogs. Gemini is public as `:gemini` in
+Prism and maps internally to ReqLLM's `:google` provider.
 
 Credentials are resolved only when an adapter is called:
 
 - OpenAI: `OPENAI_API_KEY`
 - OpenRouter: `OPENROUTER_API_KEY`
 - Gemini: `GOOGLE_API_KEY`, then `GEMINI_API_KEY`
+- Anthropic: `ANTHROPIC_API_KEY`
+- DeepSeek: `DEEPSEEK_API_KEY`
+- Groq: `GROQ_API_KEY`
+- xAI: `XAI_API_KEY`
+- Mistral: `MISTRAL_API_KEY`
+- Cerebras: `CEREBRAS_API_KEY`
 - Ollama: no credential by default; local endpoint
-  `http://127.0.0.1:11434`
+  `http://127.0.0.1:11434/v1`
 
 An `api_key:` is deliberately rejected from compiled provider parameters; Agent
 and Stack configuration must not retain secrets. Use the environment variables
@@ -92,21 +123,19 @@ Stack. Functions, processes, ports, references, credential headers, tokens,
 passwords, and secret keys are rejected; those values belong at the runtime
 call boundary only.
 
-The bundled transport validates HTTP(S) URLs and headers before connecting.
-Base URLs cannot contain userinfo, a query, or a fragment, and Gemini endpoint
-segments are percent-encoded. Runtime transport limits can be configured with
-positive values:
+Runtime generation options are passed to ReqLLM. Provider-specific values use
+`provider_options:` and low-level Req configuration uses `req_http_options:`:
 
 ```elixir
-http_timeout: 60_000,
-connect_timeout: 10_000,
-max_response_bytes: 16_000_000,
-follow_redirects: false
+receive_timeout: 60_000,
+total_timeout: 90_000,
+provider_options: [google_thinking_level: :high],
+req_http_options: [connect_options: [timeout: 10_000]]
 ```
 
-Non-JSON error bodies are never retained in adapter errors. Their HTTP status
-is preserved for retry decisions, while only a short stable provider error code
-may cross the adapter boundary.
+ReqLLM errors are reduced to sanitized Prism errors. HTTP status is preserved
+for retry decisions, while prompt contents, response bodies, credentials, and
+unbounded upstream messages do not cross the adapter boundary.
 
 Models, classifier selection, embeddings, endpoints, and other non-secret
 provider parameters are configurable in the optional third argument. Profile
@@ -114,7 +143,7 @@ IDs remain the Spectre intelligence levels `:fast`, `:balanced`, and `:deep`:
 
 ```elixir
 install Spectre.Prism do
-  provider :openai, Spectre.Prism.Adapters.OpenAI,
+  provider :openai,
     models: [
       fast: "my-fast-model",
       deep: [model: "my-reasoning-model", rank: 40]
@@ -132,6 +161,101 @@ catalog advertises an embedding, they also implement
 `Spectre.Classifier.Embedding`, then register with
 `provider :my_provider, MyApp.PrismAdapter`. Adapter parameters, when needed,
 are passed as the third argument.
+
+### Any ReqLLM provider
+
+The bridge can wrap a ReqLLM provider that does not yet have a named Prism
+module. Only the catalog policy is application-specific:
+
+```elixir
+defmodule MyApp.VeniceAdapter do
+  use Spectre.Prism.Adapter.ReqLLM,
+    provider: :venice,
+    api_key_env: "VENICE_API_KEY",
+    profiles: [
+      fast: [model: "venice-fast", rank: 10],
+      balanced: [model: "venice-balanced", rank: 20],
+      deep: [model: "venice-deep", rank: 30]
+    ]
+end
+
+install Spectre.Prism do
+  provider :venice, MyApp.VeniceAdapter
+end
+```
+
+The `model`, `base_url`, `api_key_env`, and `model_extra` options form the
+ReqLLM model specification. Generation options such as `temperature`,
+`max_tokens`, `reasoning_effort`, `provider_options`, `receive_timeout`, and
+`total_timeout` pass through to ReqLLM. Secrets must still be supplied by the
+environment or at the runtime call boundary.
+
+The named adapters can also be called directly; their balanced generation and
+default embedding models are filled automatically:
+
+```elixir
+{:ok, response} =
+  Spectre.Prism.Adapters.Gemini.complete("Explain OTP supervision",
+    reasoning_effort: :high
+  )
+
+{:ok, vector} =
+  Spectre.Prism.Adapters.OpenAI.embed("semantic search input",
+    dimensions: 768
+  )
+```
+
+Multiple providers may coexist when their profile identifiers are unique.
+Map each catalog level to an application-owned identifier:
+
+```elixir
+install Spectre.Prism do
+  provider :anthropic,
+    levels: [fast: :claude_fast, balanced: :claude_balanced, deep: :claude_deep]
+
+  provider :deepseek,
+    levels: [
+      fast: :deepseek_fast,
+      balanced: :deepseek_balanced,
+      deep: :deepseek_deep
+    ]
+
+  default :claude_balanced
+end
+```
+
+### Local Bumblebee
+
+Bumblebee is optional. Add `{:bumblebee, "~> 0.7"}` to the host application,
+load the model/tokenizer, and supervise the resulting serving:
+
+```elixir
+children = [
+  {Nx.Serving, serving: text_generation_serving, name: MyApp.TextGeneration}
+]
+```
+
+Then register the serving name as portable Prism configuration:
+
+```elixir
+install Spectre.Prism do
+  provider :bumblebee,
+    serving: MyApp.TextGeneration,
+    models: [
+      fast: "local-small",
+      balanced: "local-medium",
+      deep: "local-large"
+    ],
+    embedding: false
+
+  default :balanced
+end
+```
+
+For separate models, use `servings: %{"local-small" => MyApp.SmallServing,
+"local-large" => MyApp.LargeServing}`. Local embeddings are opt-in with
+`embedding_serving:` and an explicit
+`embedding: [model: "local-embedding", dimensions: dimension]`.
 
 ### Existing provider/model DSL
 
@@ -212,7 +336,7 @@ defmodule MyApp.LocalAgent do
   use Spectre.Prism, max_attempts: 2
 
   prism do
-    # Alternatively: provider :ollama, Spectre.Prism.Adapters.Ollama
+    # Alternatively: provider :ollama
     level :fast, model: {MyApp.LLM, :complete, model: "small"}
     level :balanced, model: :agent_default
     level :deep,

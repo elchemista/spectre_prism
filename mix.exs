@@ -1,7 +1,7 @@
 defmodule SpectrePrism.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.3.2"
   @source_url "https://github.com/elchemista/spectre_prism"
 
   def project do
@@ -29,6 +29,8 @@ defmodule SpectrePrism.MixProject do
   defp deps do
     [
       spectre_dep(),
+      {:req_llm, "~> 1.20"},
+      {:bumblebee, "~> 0.7", optional: true},
       {:jason, "~> 1.4"},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
@@ -42,7 +44,7 @@ defmodule SpectrePrism.MixProject do
         {:spectre, path: Path.expand(path, __DIR__), override: true}
 
       _unset ->
-        {:spectre, "~> 0.3.0"}
+        {:spectre, "~> 0.3.2"}
     end
   end
 

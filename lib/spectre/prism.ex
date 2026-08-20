@@ -10,13 +10,13 @@ defmodule Spectre.Prism do
   alias Spectre.Inference.Selection
   alias Spectre.Stack.DSL
 
-  @version "0.1.0"
+  @version "0.3.2"
 
   use Spectre.Stack.Installable,
     id: :prism,
     version: @version,
     contract: 1,
-    spectre: "~> 0.3.0",
+    spectre: "~> 0.3.2",
     provides: [{:service, :prism}],
     agent_extensions: [Spectre.Prism.Extension],
     dsl: __MODULE__
@@ -32,6 +32,7 @@ defmodule Spectre.Prism do
       import Spectre.Prism,
         only: [
           prism: 1,
+          provider: 1,
           provider: 2,
           provider: 3,
           level: 2,
@@ -55,6 +56,28 @@ defmodule Spectre.Prism do
   defmacro prism(do: block), do: block
 
   @doc """
+  Declares a bundled provider using its provider identifier.
+
+  For example, `provider :anthropic` resolves to the bundled Claude adapter.
+  Aliases such as `:claude`, `:google`, and `:grok` are also accepted.
+  """
+  defmacro provider(id) do
+    id = expand_value(id, __CALLER__)
+
+    case Spectre.Prism.Adapters.fetch(id) do
+      {:ok, adapter} ->
+        declaration = {id, adapter}
+
+        quote do
+          @spectre_prism_providers unquote(Macro.escape(declaration))
+        end
+
+      {:error, reason} ->
+        raise ArgumentError, "invalid bundled Prism provider: #{inspect(reason)}"
+    end
+  end
+
+  @doc """
   Declares a provider adapter on an Agent-local Prism configuration.
 
   The adapter module implements `Spectre.Prism.Adapter`. Optional provider
@@ -62,9 +85,21 @@ defmodule Spectre.Prism do
   """
   defmacro provider(id, adapter, opts \\ []) do
     id = expand_value(id, __CALLER__)
-    adapter = Macro.expand(adapter, __CALLER__)
+    adapter = expand_value(adapter, __CALLER__)
     opts = expand_value(opts, __CALLER__)
-    declaration = {id, adapter, opts}
+
+    declaration =
+      if is_list(adapter) and Keyword.keyword?(adapter) and opts == [] do
+        case Spectre.Prism.Adapters.fetch(id) do
+          {:ok, bundled_adapter} ->
+            {id, bundled_adapter, adapter}
+
+          {:error, reason} ->
+            raise ArgumentError, "invalid bundled Prism provider: #{inspect(reason)}"
+        end
+      else
+        {id, adapter, opts}
+      end
 
     quote do
       @spectre_prism_providers unquote(Macro.escape(declaration))
@@ -179,7 +214,7 @@ defmodule Spectre.Prism do
   def compile(opts, block, caller) do
     declarations =
       DSL.compile!(block, caller,
-        provider: [2, 3],
+        provider: [1, 2, 3],
         model: 2,
         level: 2,
         purpose: 2,
@@ -187,12 +222,12 @@ defmodule Spectre.Prism do
         selector: [1, 2]
       )
 
-    providers = select_providers(declarations)
     models = select(declarations, :model)
     levels = select(declarations, :level)
     purposes = select(declarations, :purpose)
 
-    with :ok <- unique_ids(providers, :provider),
+    with {:ok, providers} <- select_providers(declarations),
+         :ok <- unique_ids(providers, :provider),
          :ok <- unique_ids(models, :model),
          :ok <- unique_ids(levels, :level),
          :ok <- unique_profile_ids(models, levels),
@@ -217,15 +252,45 @@ defmodule Spectre.Prism do
         do: {id, configuration}
   end
 
-  @spec select_providers([{atom(), [term()]}]) :: [{term(), term()}]
+  @spec select_providers([{atom(), [term()]}]) ::
+          {:ok, [{term(), term()}]} | {:error, term()}
   defp select_providers(declarations) do
-    for {:provider, args} <- declarations do
-      case args do
-        [id, configuration] -> {id, configuration}
-        [id, adapter, opts] -> {id, {adapter, opts}}
-      end
+    declarations
+    |> Enum.reduce_while({:ok, []}, fn
+      {:provider, args}, {:ok, providers} ->
+        case provider_entry(args) do
+          {:ok, provider} -> {:cont, {:ok, [provider | providers]}}
+          {:error, _reason} = error -> {:halt, error}
+        end
+
+      _declaration, accumulator ->
+        {:cont, accumulator}
+    end)
+    |> case do
+      {:ok, providers} -> {:ok, Enum.reverse(providers)}
+      {:error, _reason} = error -> error
     end
   end
+
+  @spec provider_entry([term()]) :: {:ok, {term(), term()}} | {:error, term()}
+  defp provider_entry([id]) do
+    with {:ok, adapter} <- Spectre.Prism.Adapters.fetch(id) do
+      {:ok, {id, adapter}}
+    end
+  end
+
+  defp provider_entry([id, configuration]) do
+    if is_list(configuration) and Keyword.keyword?(configuration) do
+      with {:ok, adapter} <- Spectre.Prism.Adapters.fetch(id) do
+        {:ok, {id, {adapter, configuration}}}
+      end
+    else
+      {:ok, {id, configuration}}
+    end
+  end
+
+  defp provider_entry([id, adapter, provider_opts]),
+    do: {:ok, {id, {adapter, provider_opts}}}
 
   @spec unique_ids([{term(), term()}], atom()) :: :ok | {:error, term()}
   defp unique_ids(entries, kind) do
