@@ -212,43 +212,45 @@ defmodule Spectre.Prism.Adapter.ReqLLM do
 
   @spec model_spec(atom(), term(), keyword()) :: {:ok, map()} | {:error, Error.t()}
   defp model_spec(provider, model, opts) when is_binary(model) and model != "" do
-    req_provider = Keyword.get(opts, :req_llm_provider, provider)
-
-    if is_atom(req_provider) and not is_nil(req_provider) do
-      spec = %{provider: req_provider, id: model}
-
-      spec =
-        case Keyword.get(opts, :base_url) do
-          base_url when is_binary(base_url) and base_url != "" ->
-            Map.put(spec, :base_url, base_url)
-
-          nil ->
-            spec
-
-          _invalid ->
-            :invalid
-        end
-
-      case {spec, Keyword.get(opts, :model_extra)} do
-        {:invalid, _extra} ->
-          {:error, Error.configuration(provider, :invalid_base_url)}
-
-        {spec, nil} ->
-          {:ok, spec}
-
-        {spec, extra} when is_map(extra) ->
-          {:ok, Map.put(spec, :extra, extra)}
-
-        {_spec, _invalid} ->
-          {:error, Error.configuration(provider, :invalid_model_extra)}
-      end
-    else
-      {:error, Error.configuration(provider, :invalid_req_llm_provider)}
+    with {:ok, req_provider} <- req_llm_provider(provider, opts),
+         {:ok, spec} <- put_base_url(%{provider: req_provider, id: model}, provider, opts) do
+      put_model_extra(spec, provider, opts)
     end
   end
 
   defp model_spec(provider, _model, _opts),
     do: {:error, Error.configuration(provider, :invalid_model)}
+
+  @spec req_llm_provider(atom(), keyword()) :: {:ok, atom()} | {:error, Error.t()}
+  defp req_llm_provider(provider, opts) do
+    case Keyword.get(opts, :req_llm_provider, provider) do
+      req_provider when is_atom(req_provider) and not is_nil(req_provider) -> {:ok, req_provider}
+      _invalid -> {:error, Error.configuration(provider, :invalid_req_llm_provider)}
+    end
+  end
+
+  @spec put_base_url(map(), atom(), keyword()) :: {:ok, map()} | {:error, Error.t()}
+  defp put_base_url(spec, provider, opts) do
+    case Keyword.get(opts, :base_url) do
+      base_url when is_binary(base_url) and base_url != "" ->
+        {:ok, Map.put(spec, :base_url, base_url)}
+
+      nil ->
+        {:ok, spec}
+
+      _invalid ->
+        {:error, Error.configuration(provider, :invalid_base_url)}
+    end
+  end
+
+  @spec put_model_extra(map(), atom(), keyword()) :: {:ok, map()} | {:error, Error.t()}
+  defp put_model_extra(spec, provider, opts) do
+    case Keyword.get(opts, :model_extra) do
+      nil -> {:ok, spec}
+      extra when is_map(extra) -> {:ok, Map.put(spec, :extra, extra)}
+      _invalid -> {:error, Error.configuration(provider, :invalid_model_extra)}
+    end
+  end
 
   @spec req_llm_options(atom(), keyword(), [atom()]) ::
           {:ok, keyword()} | {:error, Error.t()}
@@ -302,13 +304,13 @@ defmodule Spectre.Prism.Adapter.ReqLLM do
 
   @spec normalize_generation(term(), atom(), map()) ::
           {:ok, SpectreResponse.t()} | {:error, Error.t()}
-  defp normalize_generation({:ok, %ReqLLM.Response{} = response}, provider, model_spec) do
+  defp normalize_generation({:ok, %ReqLLM.Response{} = response}, provider, _model_spec) do
     build_response(
       ReqLLM.Response.text(response),
       response.id,
       response.usage,
       provider,
-      response.model || model_spec.id,
+      response.model,
       response.finish_reason
     )
   end

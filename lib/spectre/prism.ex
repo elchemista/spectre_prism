@@ -257,27 +257,11 @@ defmodule Spectre.Prism do
   defp select_providers(declarations) do
     declarations
     |> Enum.reduce_while({:ok, []}, fn
-      {:provider, [id]}, {:ok, providers} ->
-        case Spectre.Prism.Adapters.fetch(id) do
-          {:ok, adapter} -> {:cont, {:ok, [{id, adapter} | providers]}}
+      {:provider, args}, {:ok, providers} ->
+        case provider_entry(args) do
+          {:ok, provider} -> {:cont, {:ok, [provider | providers]}}
           {:error, _reason} = error -> {:halt, error}
         end
-
-      {:provider, [id, configuration]}, {:ok, providers} ->
-        if is_list(configuration) and Keyword.keyword?(configuration) do
-          case Spectre.Prism.Adapters.fetch(id) do
-            {:ok, adapter} ->
-              {:cont, {:ok, [{id, {adapter, configuration}} | providers]}}
-
-            {:error, _reason} = error ->
-              {:halt, error}
-          end
-        else
-          {:cont, {:ok, [{id, configuration} | providers]}}
-        end
-
-      {:provider, [id, adapter, provider_opts]}, {:ok, providers} ->
-        {:cont, {:ok, [{id, {adapter, provider_opts}} | providers]}}
 
       _declaration, accumulator ->
         {:cont, accumulator}
@@ -287,6 +271,26 @@ defmodule Spectre.Prism do
       {:error, _reason} = error -> error
     end
   end
+
+  @spec provider_entry([term()]) :: {:ok, {term(), term()}} | {:error, term()}
+  defp provider_entry([id]) do
+    with {:ok, adapter} <- Spectre.Prism.Adapters.fetch(id) do
+      {:ok, {id, adapter}}
+    end
+  end
+
+  defp provider_entry([id, configuration]) do
+    if is_list(configuration) and Keyword.keyword?(configuration) do
+      with {:ok, adapter} <- Spectre.Prism.Adapters.fetch(id) do
+        {:ok, {id, {adapter, configuration}}}
+      end
+    else
+      {:ok, {id, configuration}}
+    end
+  end
+
+  defp provider_entry([id, adapter, provider_opts]),
+    do: {:ok, {id, {adapter, provider_opts}}}
 
   @spec unique_ids([{term(), term()}], atom()) :: :ok | {:error, term()}
   defp unique_ids(entries, kind) do
