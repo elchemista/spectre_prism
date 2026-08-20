@@ -290,7 +290,19 @@ defmodule Spectre.Prism.AdapterBoundariesTest do
   end
 
   test "all remaining response variants return typed values or typed errors" do
-    assert Adapters.built_ins() == [OpenAI, OpenRouter, Ollama, Gemini]
+    assert Adapters.built_ins() == [
+             OpenAI,
+             OpenRouter,
+             Ollama,
+             Gemini,
+             Spectre.Prism.Adapters.Anthropic,
+             Spectre.Prism.Adapters.DeepSeek,
+             Spectre.Prism.Adapters.Groq,
+             Spectre.Prism.Adapters.XAI,
+             Spectre.Prism.Adapters.Mistral,
+             Spectre.Prism.Adapters.Cerebras,
+             Spectre.Prism.Adapters.Bumblebee
+           ]
 
     for {provider, adapter} <- @adapters do
       assert_error(
