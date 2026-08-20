@@ -155,7 +155,7 @@ defmodule Spectre.Prism.Adapters.Bumblebee do
   end
 
   defp serving_for_model(servings, model) when is_list(servings) do
-    if Keyword.keyword?(servings), do: Keyword.get(servings, model), else: nil
+    if Keyword.keyword?(servings), do: atom_model_serving(Map.new(servings), model), else: nil
   end
 
   defp serving_for_model(_servings, _model), do: nil

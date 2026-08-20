@@ -1,10 +1,10 @@
 defmodule Spectre.Prism.Adapter.Transport do
   @moduledoc """
-  HTTP transport contract used by the built-in provider adapters.
+  HTTP transport contract retained for custom and compatibility adapters.
 
-  Applications normally use the bundled `:httpc` implementation. Supplying a
-  module through `transport:` makes provider calls testable and lets a host
-  integrate its existing HTTP stack without coupling Prism to it.
+  ReqLLM-backed bundled adapters use ReqLLM's request runtime. A custom adapter
+  may inject this transport through `transport:` to integrate another HTTP
+  stack without coupling it to Prism.
   """
 
   @type method :: :get | :post | :put | :patch | :delete

@@ -93,10 +93,11 @@ application-owned; registering a provider does not train one implicitly.
 | `Spectre.Prism.Adapters.Cerebras` | `llama3.1-8b` | Qwen 3 235B | `gpt-oss-120b` | — |
 | `Spectre.Prism.Adapters.Bumblebee` | `local-small` | `local-medium` | `local-large` | explicit serving |
 
-The first four adapters retain their hardened native HTTP implementations.
-Anthropic, DeepSeek, Groq, xAI, Mistral, and Cerebras use the shared ReqLLM
-bridge. This keeps one Spectre contract while allowing ReqLLM provider options,
-custom endpoints, telemetry, timeouts, and future provider expansion.
+Every hosted adapter and Ollama use the same ReqLLM bridge. ReqLLM owns each
+provider's wire format, authentication, request/response translation, retries,
+telemetry, and embedding API; Prism contributes the Spectre contracts and the
+fast, balanced, and deep policy catalogs. Gemini is public as `:gemini` in
+Prism and maps internally to ReqLLM's `:google` provider.
 
 Credentials are resolved only when an adapter is called:
 
@@ -110,7 +111,7 @@ Credentials are resolved only when an adapter is called:
 - Mistral: `MISTRAL_API_KEY`
 - Cerebras: `CEREBRAS_API_KEY`
 - Ollama: no credential by default; local endpoint
-  `http://127.0.0.1:11434`
+  `http://127.0.0.1:11434/v1`
 
 An `api_key:` is deliberately rejected from compiled provider parameters; Agent
 and Stack configuration must not retain secrets. Use the environment variables
@@ -122,21 +123,19 @@ Stack. Functions, processes, ports, references, credential headers, tokens,
 passwords, and secret keys are rejected; those values belong at the runtime
 call boundary only.
 
-The native bundled transport validates HTTP(S) URLs and headers before connecting.
-Base URLs cannot contain userinfo, a query, or a fragment, and Gemini endpoint
-segments are percent-encoded. Runtime transport limits can be configured with
-positive values:
+Runtime generation options are passed to ReqLLM. Provider-specific values use
+`provider_options:` and low-level Req configuration uses `req_http_options:`:
 
 ```elixir
-http_timeout: 60_000,
-connect_timeout: 10_000,
-max_response_bytes: 16_000_000,
-follow_redirects: false
+receive_timeout: 60_000,
+total_timeout: 90_000,
+provider_options: [google_thinking_level: :high],
+req_http_options: [connect_options: [timeout: 10_000]]
 ```
 
-Non-JSON error bodies are never retained in adapter errors. Their HTTP status
-is preserved for retry decisions, while only a short stable provider error code
-may cross the adapter boundary.
+ReqLLM errors are reduced to sanitized Prism errors. HTTP status is preserved
+for retry decisions, while prompt contents, response bodies, credentials, and
+unbounded upstream messages do not cross the adapter boundary.
 
 Models, classifier selection, embeddings, endpoints, and other non-secret
 provider parameters are configurable in the optional third argument. Profile
@@ -190,6 +189,21 @@ ReqLLM model specification. Generation options such as `temperature`,
 `max_tokens`, `reasoning_effort`, `provider_options`, `receive_timeout`, and
 `total_timeout` pass through to ReqLLM. Secrets must still be supplied by the
 environment or at the runtime call boundary.
+
+The named adapters can also be called directly; their balanced generation and
+default embedding models are filled automatically:
+
+```elixir
+{:ok, response} =
+  Spectre.Prism.Adapters.Gemini.complete("Explain OTP supervision",
+    reasoning_effort: :high
+  )
+
+{:ok, vector} =
+  Spectre.Prism.Adapters.OpenAI.embed("semantic search input",
+    dimensions: 768
+  )
+```
 
 Multiple providers may coexist when their profile identifiers are unique.
 Map each catalog level to an application-owned identifier:

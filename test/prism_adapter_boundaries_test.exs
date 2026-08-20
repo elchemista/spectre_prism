@@ -1,37 +1,70 @@
-defmodule Spectre.Prism.AdapterBoundariesTest.Transport do
+defmodule Spectre.Prism.AdapterBoundariesTest.RaisingClient do
   @moduledoc false
+  def generate_text(_model, _prompt, _opts), do: raise("private upstream failure")
+  def embed(_model, _input, _opts), do: exit(:private_upstream_exit)
+end
 
-  @behaviour Spectre.Prism.Adapter.Transport
+defmodule Spectre.Prism.AdapterBoundariesTest.InvalidClient do
+  @moduledoc false
+  def generate_text(_model, _prompt, _opts), do: {:ok, %{text: ""}}
+  def embed(_model, _input, _opts), do: {:ok, []}
+end
 
-  @impl true
-  def request(method, url, headers, body, opts) do
-    send(Keyword.fetch!(opts, :test_pid), {:boundary_request, method, url, headers, body})
-    Keyword.fetch!(opts, :transport_reply)
-  end
+defmodule Spectre.Prism.AdapterBoundariesTest.ProbeClient do
+  @moduledoc false
+  def generate_text(_model, _prompt, _opts), do: {:ok, "ok"}
+  def embed(_model, _input, _opts), do: {:ok, [1, 2, 3, 4]}
+end
+
+defmodule Spectre.Prism.AdapterBoundariesTest.ResultClient do
+  @moduledoc false
+  def generate_text(_model, _prompt, opts), do: Keyword.fetch!(opts, :result)
+  def embed(_model, _input, opts), do: Keyword.fetch!(opts, :result)
 end
 
 defmodule Spectre.Prism.AdapterBoundariesTest do
   use ExUnit.Case, async: true
 
-  alias Spectre.Inference.Response
   alias Spectre.Prism.Adapter.Error
-  alias Spectre.Prism.AdapterBoundariesTest.Transport
-  alias Spectre.Prism.Adapters
+  alias Spectre.Prism.AdapterBoundariesTest.InvalidClient
+  alias Spectre.Prism.AdapterBoundariesTest.ProbeClient
+  alias Spectre.Prism.AdapterBoundariesTest.RaisingClient
+  alias Spectre.Prism.AdapterBoundariesTest.ResultClient
+  alias Spectre.Prism.Adapters.Anthropic
+  alias Spectre.Prism.Adapters.Cerebras
+  alias Spectre.Prism.Adapters.DeepSeek
   alias Spectre.Prism.Adapters.Gemini
+  alias Spectre.Prism.Adapters.Groq
+  alias Spectre.Prism.Adapters.Mistral
   alias Spectre.Prism.Adapters.Ollama
   alias Spectre.Prism.Adapters.OpenAI
   alias Spectre.Prism.Adapters.OpenRouter
+  alias Spectre.Prism.Adapters.XAI
   alias Spectre.Prompt.Plan
 
-  @adapters [
+  @generation_adapters [
     openai: OpenAI,
+    gemini: Gemini,
     openrouter: OpenRouter,
     ollama: Ollama,
-    gemini: Gemini
+    anthropic: Anthropic,
+    deepseek: DeepSeek,
+    groq: Groq,
+    xai: XAI,
+    mistral: Mistral,
+    cerebras: Cerebras
   ]
 
-  test "public adapter boundaries reject malformed prompts, models, options, and URLs" do
-    for {provider, adapter} <- @adapters do
+  @embedding_adapters [
+    openai: OpenAI,
+    gemini: Gemini,
+    openrouter: OpenRouter,
+    ollama: Ollama,
+    mistral: Mistral
+  ]
+
+  test "ReqLLM-backed adapters reject malformed public inputs with typed errors" do
+    for {provider, adapter} <- @generation_adapters do
       assert_error(adapter.complete(:invalid, []), provider, :configuration, :invalid_prompt)
 
       assert_error(
@@ -55,463 +88,160 @@ defmodule Spectre.Prism.AdapterBoundariesTest do
         :invalid_prompt_plan
       )
 
+      assert_error(
+        adapter.complete("hello", base_url: :invalid),
+        provider,
+        :configuration,
+        :invalid_base_url
+      )
+
+      assert_error(
+        adapter.complete("hello", req_llm_provider: "invalid"),
+        provider,
+        :configuration,
+        :invalid_req_llm_provider
+      )
+    end
+
+    for {provider, adapter} <- @embedding_adapters do
       assert_error(adapter.load("", []), provider, :configuration, :invalid_model)
 
       assert_error(
-        adapter.load("custom-model", dimensions: 0),
+        adapter.load("model", dimensions: 0),
         provider,
         :configuration,
         :invalid_embedding_dimensions
       )
 
+      assert_error(adapter.embed("", []), provider, :configuration, :invalid_embedding_input)
+      assert_error(adapter.embed([], []), provider, :configuration, :invalid_embedding_input)
+
       assert_error(
-        adapter.embed("", []),
+        adapter.embed(["ok", ""], []),
         provider,
         :configuration,
         :invalid_embedding_input
       )
-
-      assert_error(
-        adapter.complete(
-          "hello",
-          runtime_opts(ok(%{"output_text" => "unused"}), base_url: :invalid)
-        ),
-        provider,
-        :configuration,
-        :invalid_url
-      )
     end
-
-    assert_error(Ollama.download("", []), :ollama, :configuration, :invalid_model)
-    assert_error(OpenAI.embed([], []), :openai, :configuration, :invalid_embedding_input)
-
-    assert_error(
-      OpenRouter.embed(["ok", ""], []),
-      :openrouter,
-      :configuration,
-      :invalid_embedding_input
-    )
-
-    assert_error(Gemini.embed(:invalid, []), :gemini, :configuration, :invalid_embedding_input)
   end
 
-  test "malformed provider responses never escape adapter contracts" do
+  test "client exceptions, exits, and malformed results never escape the adapter contract" do
     assert_error(
-      OpenRouter.complete("hello", runtime_opts(ok(%{"choices" => %{}}))),
+      OpenAI.complete("private prompt", req_llm_module: RaisingClient),
+      :openai,
+      :transport,
+      :req_llm_exception
+    )
+
+    assert_error(
+      Gemini.embed("private input", req_llm_module: RaisingClient),
+      :gemini,
+      :transport,
+      :req_llm_exit
+    )
+
+    assert_error(
+      OpenRouter.complete("hello", req_llm_module: InvalidClient),
       :openrouter,
       :invalid_response,
       :missing_output_text
     )
 
-    assert {:ok, %Response{usage: %{input_tokens: 0, output_tokens: 0, total_tokens: 0}}} =
-             Ollama.complete(
-               "hello",
-               runtime_opts(
-                 ok(%{
-                   "message" => %{"content" => "local"},
-                   "prompt_eval_count" => "secret",
-                   "eval_count" => nil
-                 }),
-                 api_key: nil
-               )
-             )
-
-    assert {:ok, %Response{usage: %{input_tokens: 2, output_tokens: 0, total_tokens: 2}}} =
-             OpenAI.complete(
-               "hello",
-               runtime_opts(
-                 ok(%{
-                   "output_text" => "safe",
-                   "usage" => %{"input_tokens" => 2, "output_tokens" => -1, "total_tokens" => "5"}
-                 })
-               )
-             )
-
     assert_error(
-      Ollama.embed("hello", runtime_opts(ok(%{"embeddings" => [[1, :invalid]]}), api_key: nil)),
+      Ollama.embed("hello", req_llm_module: InvalidClient),
       :ollama,
-      :invalid_response,
-      :invalid_embedding_vector
-    )
-
-    assert_error(
-      Gemini.embed("hello", runtime_opts(ok(%{"embedding" => %{"values" => []}}))),
-      :gemini,
       :invalid_response,
       :invalid_embedding_vector
     )
   end
 
-  test "alternate response shapes and typed prompt plans are normalized" do
-    plan = %Plan{
-      instructions: [%{content: "follow policy"}],
-      context: [%{content: "<untrusted & data>"}],
-      task: [%{content: "answer"}]
-    }
-
-    assert {:ok, %Response{text: "part onepart two"}} =
-             OpenRouter.complete_plan(
-               plan,
-               runtime_opts(
-                 ok(%{
-                   "choices" => [
-                     %{
-                       "message" => %{
-                         "content" => [
-                           %{"type" => "text", "text" => "part one"},
-                           %{"text" => "part two"}
-                         ]
-                       }
-                     }
-                   ]
-                 })
-               )
+  test "unknown embedding dimensions are probed through ReqLLM" do
+    assert {:ok, 4} =
+             OpenAI.load("custom-embedding",
+               req_llm_module: ProbeClient
              )
 
-    assert_receive {:boundary_request, :post, _url, _headers, body}
-    assert Enum.at(body["messages"], 0) == %{"role" => "system", "content" => "follow policy"}
-    assert Enum.at(body["messages"], 1)["content"] =~ "&lt;untrusted &amp; data&gt;"
-
-    assert {:ok, %Response{text: "direct"}} =
-             Gemini.complete(
-               "hello",
-               runtime_opts(ok(%{"output_text" => "direct", "usage" => :invalid}),
-                 interaction_api_version: "v1beta/preview"
-               )
-             )
-
-    assert_receive {:boundary_request, :post, gemini_url, _headers, _body}
-    assert gemini_url =~ "/v1beta%2Fpreview/interactions"
-
-    assert {:ok, [0.25, 0.5]} =
-             Gemini.embed(
-               "hello",
-               runtime_opts(ok(%{"embeddings" => [%{"values" => [0.25, 0.5]}]}),
-                 model: "models/custom/name",
-                 task_type: "retrieval_query"
-               )
-             )
-
-    assert_receive {:boundary_request, :post, embedding_url, _headers, embedding_body}
-    assert embedding_url =~ "/models/custom%2Fname:embedContent"
-    assert embedding_body["embedContentConfig"]["taskType"] == "retrieval_query"
-  end
-
-  test "embedding batches require exact unique provider indexes" do
-    duplicate =
-      ok(%{
-        "data" => [
-          %{"index" => 0, "embedding" => [1]},
-          %{"index" => 0, "embedding" => [2]}
-        ]
-      })
-
-    assert_error(
-      OpenAI.embed(["one", "two"], runtime_opts(duplicate)),
-      :openai,
-      :invalid_response,
-      :invalid_embedding_index
-    )
-
-    assert_error(
-      OpenRouter.embed(
-        "one",
-        runtime_opts(ok(%{"data" => [%{"index" => -1, "embedding" => [1]}]}))
-      ),
-      :openrouter,
-      :invalid_response,
-      :invalid_embedding_index
-    )
-
-    assert_error(
-      OpenAI.embed("one", runtime_opts(ok(%{"error" => %{"code" => "embedding_failed"}}))),
-      :openai,
-      :provider,
-      "embedding_failed"
-    )
-
-    assert_error(
-      OpenRouter.embed("one", runtime_opts(ok([]))),
-      :openrouter,
-      :invalid_response,
-      :embedding_response_not_an_object
-    )
-
-    assert_error(
-      OpenAI.embed(
-        ["one", "two"],
-        runtime_opts(
-          ok(%{
-            "data" => [
-              %{"index" => 0, "embedding" => [1]},
-              %{"index" => 1, "embedding" => [1, 2]}
-            ]
-          })
-        )
-      ),
-      :openai,
-      :invalid_response,
-      :embedding_dimensions_mismatch
-    )
-  end
-
-  test "unknown embedding dimensions are probed through each provider" do
-    assert {:ok, 2} =
-             OpenAI.load(
-               "custom-openai",
-               runtime_opts(ok(%{"data" => [%{"embedding" => [1, 2]}]}))
-             )
-
-    assert {:ok, 2} =
-             OpenRouter.load(
-               "custom-openrouter",
-               runtime_opts(ok(%{"data" => [%{"embedding" => [1, 2]}]}))
-             )
-
-    assert {:ok, 2} =
-             Ollama.load(
-               "custom-ollama",
-               runtime_opts(ok(%{"embeddings" => [[1, 2]]}), api_key: nil)
-             )
-
-    assert {:ok, 2} =
-             Gemini.load(
-               "custom-gemini",
-               runtime_opts(ok(%{"embedding" => %{"values" => [1, 2]}}))
+    assert {:ok, 4} =
+             Gemini.load("custom-embedding",
+               req_llm_module: ProbeClient
              )
   end
 
-  test "provider-declared errors are reduced to stable codes" do
-    for {provider, adapter} <- @adapters do
-      opts = runtime_opts(ok(%{"error" => %{"type" => "provider_error"}}))
-      result = adapter.complete("hello", opts)
-      assert_error(result, provider, :provider, "provider_error")
-    end
-  end
-
-  test "all remaining response variants return typed values or typed errors" do
-    assert Adapters.built_ins() == [
-             OpenAI,
-             OpenRouter,
-             Ollama,
-             Gemini,
-             Spectre.Prism.Adapters.Anthropic,
-             Spectre.Prism.Adapters.DeepSeek,
-             Spectre.Prism.Adapters.Groq,
-             Spectre.Prism.Adapters.XAI,
-             Spectre.Prism.Adapters.Mistral,
-             Spectre.Prism.Adapters.Cerebras,
-             Spectre.Prism.Adapters.Bumblebee
-           ]
-
-    for {provider, adapter} <- @adapters do
-      assert_error(
-        adapter.complete("hello", runtime_opts(ok([]))),
-        provider,
-        :invalid_response,
-        :response_not_an_object
-      )
-    end
-
-    assert {:ok, %Response{text: "fallback"}} =
-             OpenAI.complete(
-               "hello",
-               runtime_opts(
-                 ok(%{
-                   "output" => [%{"content" => [%{"text" => "fallback"}, %{"ignored" => true}]}],
-                   "usage" => :invalid
-                 })
-               )
-             )
-
+  test "invalid client modules and model metadata are rejected before an API call" do
     assert_error(
-      OpenAI.complete("hello", runtime_opts(ok(%{"output" => :invalid}))),
+      OpenAI.complete("hello", req_llm_module: String),
       :openai,
-      :invalid_response,
-      :missing_output_text
+      :configuration,
+      :req_llm_unavailable
     )
 
     assert_error(
-      OpenRouter.complete(
-        "hello",
-        runtime_opts(
-          ok(%{"choices" => [%{"message" => %{"content" => []}}], "usage" => :invalid})
-        )
-      ),
-      :openrouter,
-      :invalid_response,
-      :missing_output_text
-    )
-
-    assert_error(
-      Ollama.complete("hello", runtime_opts(ok(%{}), api_key: nil)),
-      :ollama,
-      :invalid_response,
-      :missing_output_text
-    )
-
-    assert_error(
-      Ollama.embed("hello", runtime_opts(ok(%{}), api_key: nil)),
-      :ollama,
-      :invalid_response,
-      :missing_embedding_vector
-    )
-
-    assert_error(
-      Ollama.embed(
-        "hello",
-        runtime_opts(ok(%{"error" => %{"code" => "embed_failed"}}), api_key: nil)
-      ),
-      :ollama,
-      :provider,
-      "embed_failed"
-    )
-
-    assert_error(
-      Ollama.embed("hello", runtime_opts(ok([]), api_key: nil)),
-      :ollama,
-      :invalid_response,
-      :embedding_response_not_an_object
-    )
-
-    assert {:ok, %Response{text: "last model output"}} =
-             Gemini.complete(
-               "hello",
-               runtime_opts(
-                 ok(%{
-                   "steps" => [
-                     %{"type" => "ignored"},
-                     %{
-                       "type" => "model_output",
-                       "content" => [%{"text" => "last model output"}, %{"ignored" => true}]
-                     }
-                   ]
-                 }),
-                 generation_config: :invalid,
-                 api_revision: "2026-08",
-                 task_type: %{custom: true}
-               )
-             )
-
-    assert_error(
-      Gemini.complete("hello", runtime_opts(ok(%{"steps" => :invalid}), api_revision: :invalid)),
-      :gemini,
-      :invalid_response,
-      :missing_output_text
-    )
-
-    assert_error(
-      Gemini.embed("hello", runtime_opts(ok(%{}))),
-      :gemini,
-      :invalid_response,
-      :missing_embedding_vector
-    )
-
-    assert_error(
-      Gemini.embed("hello", runtime_opts(ok(%{"error" => %{"code" => "embed_failed"}}))),
-      :gemini,
-      :provider,
-      "embed_failed"
-    )
-
-    assert_error(
-      Gemini.embed("hello", runtime_opts(ok([]))),
-      :gemini,
-      :invalid_response,
-      :embedding_response_not_an_object
-    )
-
-    assert_error(
-      Gemini.embed("hello", runtime_opts(ok(%{}), embedding_api_version: :invalid)),
+      Gemini.complete("hello", model_extra: :invalid),
       :gemini,
       :configuration,
-      :invalid_api_version
+      :invalid_model_extra
     )
 
     assert_error(
-      Gemini.embed("hello", runtime_opts(ok(%{}), model: "models/")),
-      :gemini,
+      OpenRouter.complete("hello", model: ""),
+      :openrouter,
       :configuration,
       :invalid_model
     )
-  end
-
-  test "provider request options are translated without unsafe implicit values" do
-    assert {:ok, %Response{text: "configured"}} =
-             OpenAI.complete(
-               "hello",
-               runtime_opts(ok(%{"output_text" => "configured"}),
-                 max_tokens: 12,
-                 reasoning_effort: :high,
-                 temperature: 0.2,
-                 top_p: 0.9,
-                 text: [format: :json],
-                 store: false,
-                 service_tier: :priority
-               )
-             )
-
-    assert_receive {:boundary_request, :post, _url, _headers, body}
-    assert body["max_output_tokens"] == 12
-    assert body["reasoning"] == %{"effort" => "high"}
-    assert body["text"] == %{"format" => "json"}
-    assert body["store"] == false
-
-    assert {:ok, %Response{text: "explicit reasoning"}} =
-             OpenAI.complete(
-               "hello",
-               runtime_opts(ok(%{"output_text" => "explicit reasoning"}),
-                 reasoning: [effort: :low],
-                 reasoning_effort: :high
-               )
-             )
-
-    assert_receive {:boundary_request, :post, _url, _headers, explicit_body}
-    assert explicit_body["reasoning"] == %{"effort" => "low"}
 
     assert_error(
-      OpenAI.complete(
-        "hello",
-        runtime_opts(ok(%{"output_text" => "unused"}),
-          reasoning: %{{:tuple, :key} => :high},
-          transport: String
-        )
-      ),
+      OpenAI.complete("hello", api_key: ""),
       :openai,
       :configuration,
-      :transport_unavailable
+      :invalid_api_key
     )
 
-    assert {:ok, %Response{text: "router"}} =
-             OpenRouter.complete(
-               "hello",
-               runtime_opts(ok(%{"choices" => [%{"message" => %{"content" => "router"}}]}),
-                 site_url: :invalid,
-                 app_name: :invalid
-               )
-             )
-
-    assert {:ok, %Response{text: "ollama"}} =
-             Ollama.complete(
-               "hello",
-               runtime_opts(ok(%{"message" => %{"content" => "ollama"}}),
-                 options: :invalid,
-                 api_key: "runtime-key"
-               )
-             )
+    assert_error(
+      Gemini.complete("hello", base_url: ""),
+      :gemini,
+      :configuration,
+      :invalid_base_url
+    )
   end
 
-  defp runtime_opts(reply, extra \\ []) do
-    [
-      api_key: "test-key",
-      test_pid: self(),
-      transport: Transport,
-      transport_reply: reply
-    ]
-    |> Keyword.merge(extra)
-  end
+  test "ReqLLM result variants are normalized without leaking upstream details" do
+    assert {:ok, %{text: "plain text"}} =
+             OpenAI.complete("hello", req_llm_module: ResultClient, result: {:ok, "plain text"})
 
-  defp ok(body), do: {:ok, 200, [], body}
+    assert {:ok, [[1.0, 2.0], [3.0, 4.0]]} =
+             OpenAI.embed(["one", "two"],
+               req_llm_module: ResultClient,
+               result: {:ok, [[1, 2], [3, 4]]}
+             )
+
+    assert_error(
+      OpenAI.complete("hello", req_llm_module: ResultClient, result: {:ok, :invalid}),
+      :openai,
+      :invalid_response,
+      :invalid_req_llm_response
+    )
+
+    timeout = ReqLLM.Error.API.Timeout.exception(kind: :total, timeout: 1_000)
+
+    assert_error(
+      Gemini.complete("hello", req_llm_module: ResultClient, result: {:error, timeout}),
+      :gemini,
+      :transport,
+      :timeout
+    )
+
+    response_error = ReqLLM.Error.API.Response.exception(reason: "private response")
+
+    assert_error(
+      OpenRouter.complete("hello",
+        req_llm_module: ResultClient,
+        result: {:error, response_error}
+      ),
+      :openrouter,
+      :invalid_response,
+      :req_llm_response_error
+    )
+  end
 
   defp assert_error(result, provider, kind, code) do
     assert {:error, %Error{provider: ^provider, kind: ^kind, code: ^code}} = result

@@ -43,6 +43,20 @@ defmodule Spectre.Prism.ReqLLMAdaptersTest.Serving do
     send(pid, {:bumblebee_embedding, input})
     %{embedding: [0.25, 0.5, 0.75]}
   end
+
+  def batched_run({pid, {:return, output}}, input) do
+    send(pid, {:bumblebee_return, input})
+    output
+  end
+
+  def batched_run({_pid, :raise}, _input), do: raise("private serving error")
+  def batched_run({_pid, :exit}, _input), do: exit(:private_serving_exit)
+  def batched_run({_pid, :throw}, _input), do: throw(:private_serving_throw)
+
+  def run({pid, output}, input) do
+    send(pid, {:bumblebee_run, input})
+    output
+  end
 end
 
 defmodule Spectre.Prism.ReqLLMAdaptersTest.CustomAdapter do
@@ -68,8 +82,12 @@ defmodule Spectre.Prism.ReqLLMAdaptersTest do
   alias Spectre.Prism.Adapters.Bumblebee
   alias Spectre.Prism.Adapters.Cerebras
   alias Spectre.Prism.Adapters.DeepSeek
+  alias Spectre.Prism.Adapters.Gemini
   alias Spectre.Prism.Adapters.Groq
   alias Spectre.Prism.Adapters.Mistral
+  alias Spectre.Prism.Adapters.Ollama
+  alias Spectre.Prism.Adapters.OpenAI
+  alias Spectre.Prism.Adapters.OpenRouter
   alias Spectre.Prism.Adapters.XAI
   alias Spectre.Prism.Registry
   alias Spectre.Prism.ReqLLMAdaptersTest.Client
@@ -77,7 +95,18 @@ defmodule Spectre.Prism.ReqLLMAdaptersTest do
   alias Spectre.Prism.ReqLLMAdaptersTest.Serving
   alias Spectre.Prompt.Plan
 
-  @req_llm_adapters [Anthropic, DeepSeek, Groq, XAI, Mistral, Cerebras]
+  @req_llm_adapters [
+    OpenAI,
+    Gemini,
+    OpenRouter,
+    Ollama,
+    Anthropic,
+    DeepSeek,
+    Groq,
+    XAI,
+    Mistral,
+    Cerebras
+  ]
 
   test "bundled identifiers and aliases resolve without adapter boilerplate" do
     assert Adapters.ids() == [
@@ -277,5 +306,125 @@ defmodule Spectre.Prism.ReqLLMAdaptersTest do
 
     assert {:error, %Error{kind: :configuration, code: :missing_serving}} =
              Bumblebee.complete("prompt", model: "local-small")
+  end
+
+  test "Bumblebee supports prompt plans, model serving maps, and output variants" do
+    plan = %Plan{
+      instructions: [%{content: "local policy"}],
+      context: [],
+      task: [%{content: "answer locally"}]
+    }
+
+    string_result = %{
+      "results" => [
+        %{
+          "text" => "mapped local result",
+          "token_summary" => %{"input" => 3, "output" => 2}
+        }
+      ]
+    }
+
+    assert {:ok,
+            %Response{
+              text: "mapped local result",
+              usage: %{input_tokens: 3, output_tokens: 2, total_tokens: 5}
+            }} =
+             Bumblebee.complete_plan(plan,
+               model: "local-medium",
+               servings: %{"local-medium": {self(), {:return, string_result}}},
+               serving_module: Serving
+             )
+
+    assert_receive {:bumblebee_return, "local policy\n\nanswer locally"}
+
+    assert {:ok, %Response{text: "plain local result"}} =
+             Bumblebee.complete("plain",
+               model: "local-small",
+               servings: ["local-small": {self(), "plain local result"}],
+               serving_module: Serving,
+               serving_function: :run
+             )
+
+    assert_receive {:bumblebee_run, "plain"}
+  end
+
+  test "Bumblebee validates serving configuration and contains serving failures" do
+    assert {:error, %Error{code: :invalid_prompt}} = Bumblebee.complete(:invalid)
+    assert {:error, %Error{code: :invalid_options}} = Bumblebee.complete("prompt", [:invalid])
+    assert {:error, %Error{code: :invalid_prompt_plan}} = Bumblebee.complete_plan(:invalid, [])
+    assert {:error, %Error{code: :invalid_model}} = Bumblebee.load("")
+    assert {:error, %Error{code: :invalid_embedding_input}} = Bumblebee.embed("")
+
+    assert {:error, %Error{code: :missing_embedding_serving}} =
+             Bumblebee.embed("text", model: "local-embedding")
+
+    assert {:error, %Error{code: :nx_serving_unavailable}} =
+             Bumblebee.complete("prompt", serving: :serving, serving_module: "invalid")
+
+    assert {:error, %Error{code: :invalid_serving_function}} =
+             Bumblebee.complete("prompt",
+               serving: :serving,
+               serving_module: Serving,
+               serving_function: :missing
+             )
+
+    for {mode, code} <- [raise: :serving_exception, exit: :serving_exit, throw: :serving_failure] do
+      assert {:error, %Error{kind: :transport, code: ^code}} =
+               Bumblebee.complete("prompt",
+                 serving: {self(), mode},
+                 serving_module: Serving
+               )
+    end
+  end
+
+  test "Bumblebee normalizes embedding variants and probes dimensions" do
+    for output <- [
+          %{"embedding" => [1, 2]},
+          %{embedding: [1, 2]},
+          [1, 2],
+          Nx.tensor([1, 2])
+        ] do
+      assert {:ok, [1.0, 2.0]} =
+               Bumblebee.embed("text",
+                 embedding_serving: {self(), {:return, output}},
+                 serving_module: Serving
+               )
+    end
+
+    assert {:ok, 3} =
+             Bumblebee.load("local-embedding",
+               embedding_serving: {self(), :embedding},
+               serving_module: Serving
+             )
+
+    assert {:ok, 16} = Bumblebee.download("local-embedding", dimensions: 16)
+
+    for output <- [[], [1, :invalid], %{"unexpected" => true}] do
+      assert {:error, %Error{code: :invalid_embedding_vector}} =
+               Bumblebee.embed("text",
+                 embedding_serving: {self(), {:return, output}},
+                 serving_module: Serving
+               )
+    end
+  end
+
+  test "Bumblebee rejects malformed generation output and sanitizes token counts" do
+    result = %{
+      results: [
+        %{text: "safe", token_summary: %{input: -1, output: "private", padding: 9}}
+      ]
+    }
+
+    assert {:ok, %Response{text: "safe", usage: %{total_tokens: 0}}} =
+             Bumblebee.complete("prompt",
+               serving: {self(), {:return, result}},
+               serving_module: Serving
+             )
+
+    assert {:error, %Error{code: :missing_output_text}} =
+             Bumblebee.complete("prompt",
+               serving: {self(), {:return, %{results: []}}},
+               serving_module: Serving
+             )
   end
 end

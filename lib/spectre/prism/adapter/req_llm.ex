@@ -2,9 +2,8 @@ defmodule Spectre.Prism.Adapter.ReqLLM do
   @moduledoc """
   Bridge for building Prism adapters on top of `ReqLLM` providers.
 
-  The bundled Anthropic, DeepSeek, Groq, xAI, Mistral, and Cerebras adapters
-  use this module. Applications can cover any additional ReqLLM provider with
-  a small adapter module:
+  Every bundled remote provider, plus Ollama, uses this module. Applications
+  can cover any additional ReqLLM provider with a small adapter module:
 
       defmodule MyApp.VeniceAdapter do
         use Spectre.Prism.Adapter.ReqLLM,
@@ -29,7 +28,6 @@ defmodule Spectre.Prism.Adapter.ReqLLM do
 
   @generation_control_options [
     :api_key_env,
-    :base_url,
     :dimensions,
     :embedding_model,
     :encoder_model,
@@ -41,7 +39,6 @@ defmodule Spectre.Prism.Adapter.ReqLLM do
 
   @embedding_control_options [
     :api_key_env,
-    :base_url,
     :embedding_model,
     :encoder_model,
     :model,
@@ -51,32 +48,48 @@ defmodule Spectre.Prism.Adapter.ReqLLM do
   ]
 
   defmacro __using__(opts) do
-    provider = Keyword.fetch!(opts, :provider)
+    req_llm_provider = Keyword.fetch!(opts, :provider)
+    prism_provider = Keyword.get(opts, :prism_provider, req_llm_provider)
     profiles = Keyword.fetch!(opts, :profiles)
     classifier = Keyword.get(opts, :classifier, :fast)
     embedding = Keyword.get(opts, :embedding)
     api_key_env = Keyword.get(opts, :api_key_env)
+    default_profile = Keyword.get(profiles, :balanced) || profiles |> List.first() |> elem(1)
+    generation_model = Keyword.fetch!(default_profile, :model)
 
     options =
-      [req_llm_provider: provider]
+      [req_llm_provider: req_llm_provider]
       |> maybe_keyword_put(:api_key_env, api_key_env)
       |> Keyword.merge(Keyword.get(opts, :options, []))
 
+    generation_options = Keyword.put(options, :model, generation_model)
+
+    embedding_options =
+      if embedding,
+        do: Keyword.put(options, :model, Keyword.fetch!(embedding, :model)),
+        else: options
+
     quote bind_quoted: [
-            provider: provider,
+            req_llm_provider: req_llm_provider,
+            prism_provider: prism_provider,
             profiles: profiles,
             classifier: classifier,
             embedding: embedding,
-            options: options
+            options: options,
+            generation_options: generation_options,
+            embedding_options: embedding_options
           ] do
       @behaviour Spectre.Prism.Adapter
       @behaviour Spectre.LLM
 
-      @prism_req_llm_provider provider
+      @prism_req_llm_provider req_llm_provider
+      @prism_provider prism_provider
       @prism_req_llm_profiles profiles
       @prism_req_llm_classifier classifier
       @prism_req_llm_embedding embedding
       @prism_req_llm_options options
+      @prism_req_llm_generation_options generation_options
+      @prism_req_llm_embedding_options embedding_options
 
       @impl Spectre.Prism.Adapter
       def catalog do
@@ -90,12 +103,24 @@ defmodule Spectre.Prism.Adapter.ReqLLM do
 
       @impl Spectre.LLM
       def complete(prompt, opts \\ []) do
-        Spectre.Prism.Adapter.ReqLLM.complete(@prism_req_llm_provider, prompt, opts)
+        opts =
+          Spectre.Prism.Adapter.ReqLLM.runtime_options(
+            opts,
+            @prism_req_llm_generation_options
+          )
+
+        Spectre.Prism.Adapter.ReqLLM.complete(@prism_provider, prompt, opts)
       end
 
       @impl Spectre.LLM
       def complete_plan(plan, opts) do
-        Spectre.Prism.Adapter.ReqLLM.complete_plan(@prism_req_llm_provider, plan, opts)
+        opts =
+          Spectre.Prism.Adapter.ReqLLM.runtime_options(
+            opts,
+            @prism_req_llm_generation_options
+          )
+
+        Spectre.Prism.Adapter.ReqLLM.complete_plan(@prism_provider, plan, opts)
       end
 
       if @prism_req_llm_embedding do
@@ -103,8 +128,11 @@ defmodule Spectre.Prism.Adapter.ReqLLM do
 
         @impl Spectre.Classifier.Embedding
         def load(model, opts \\ []) do
+          opts =
+            Spectre.Prism.Adapter.ReqLLM.runtime_options(opts, @prism_req_llm_options)
+
           Spectre.Prism.Adapter.ReqLLM.load(
-            @prism_req_llm_provider,
+            @prism_provider,
             model,
             opts,
             @prism_req_llm_embedding
@@ -116,11 +144,25 @@ defmodule Spectre.Prism.Adapter.ReqLLM do
 
         @impl Spectre.Classifier.Embedding
         def embed(input, opts \\ []) do
-          Spectre.Prism.Adapter.ReqLLM.embed(@prism_req_llm_provider, input, opts)
+          opts =
+            Spectre.Prism.Adapter.ReqLLM.runtime_options(
+              opts,
+              @prism_req_llm_embedding_options
+            )
+
+          Spectre.Prism.Adapter.ReqLLM.embed(@prism_provider, input, opts)
         end
       end
     end
   end
+
+  @doc false
+  @spec runtime_options(term(), keyword()) :: term()
+  def runtime_options(opts, defaults) when is_list(opts) do
+    if Keyword.keyword?(opts), do: Keyword.merge(defaults, opts), else: opts
+  end
+
+  def runtime_options(opts, _defaults), do: opts
 
   @doc false
   @spec complete(atom(), term(), term()) :: {:ok, SpectreResponse.t()} | {:error, Error.t()}
@@ -156,7 +198,10 @@ defmodule Spectre.Prism.Adapter.ReqLLM do
   def load(provider, model, opts, default_embedding)
       when is_binary(model) and model != "" do
     with :ok <- Client.validate_options(provider, opts) do
-      default_dimensions = Keyword.get(default_embedding, :dimensions)
+      default_dimensions =
+        if model == Keyword.get(default_embedding, :model),
+          do: Keyword.get(default_embedding, :dimensions),
+          else: nil
 
       case Client.dimensions(provider, opts, default_dimensions) do
         :probe -> probe_dimensions(provider, model, opts)
