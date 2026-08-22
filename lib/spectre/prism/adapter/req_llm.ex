@@ -26,6 +26,9 @@ defmodule Spectre.Prism.Adapter.ReqLLM do
   alias Spectre.Prism.Adapter.Error
   alias Spectre.Prism.Adapter.Prompt
 
+  @spectre_runtime_options Spectre.LLM.runtime_opt_keys()
+  @host_metadata_options [:app_name]
+
   @generation_control_options [
     :api_key_env,
     :dimensions,
@@ -220,7 +223,8 @@ defmodule Spectre.Prism.Adapter.ReqLLM do
     with :ok <- Client.validate_options(provider, opts),
          :ok <- validate_embedding_input(provider, input),
          {:ok, model_spec} <- model_spec(provider, embedding_model(opts), opts),
-         {:ok, req_opts} <- req_llm_options(provider, opts, @embedding_control_options),
+         {:ok, req_opts} <-
+           req_llm_options(provider, opts, @embedding_control_options, :embedding),
          {:ok, client} <- req_llm_client(provider, opts, :embed) do
       client
       |> apply(:embed, [model_spec, input, req_opts])
@@ -240,7 +244,8 @@ defmodule Spectre.Prism.Adapter.ReqLLM do
           {:ok, SpectreResponse.t()} | {:error, Error.t()}
   defp generate(parts, provider, opts) do
     with {:ok, model_spec} <- model_spec(provider, Keyword.get(opts, :model), opts),
-         {:ok, req_opts} <- req_llm_options(provider, opts, @generation_control_options),
+         {:ok, req_opts} <-
+           req_llm_options(provider, opts, @generation_control_options, :generation),
          {:ok, client} <- req_llm_client(provider, opts, :generate_text) do
       req_opts = maybe_system_prompt(req_opts, parts.instructions)
 
@@ -297,16 +302,16 @@ defmodule Spectre.Prism.Adapter.ReqLLM do
     end
   end
 
-  @spec req_llm_options(atom(), keyword(), [atom()]) ::
+  @spec req_llm_options(atom(), keyword(), [atom()], :embedding | :generation) ::
           {:ok, keyword()} | {:error, Error.t()}
-  defp req_llm_options(provider, opts, control_options) do
+  defp req_llm_options(provider, opts, control_options, operation) do
     case runtime_api_key(opts, provider) do
       {:ok, key} ->
         req_opts =
           opts
-          |> Keyword.drop(control_options)
+          |> Keyword.drop(control_options ++ @spectre_runtime_options ++ @host_metadata_options)
           |> normalize_max_tokens()
-          |> normalize_timeout()
+          |> normalize_timeout(operation)
 
         if is_binary(key),
           do: {:ok, Keyword.put(req_opts, :api_key, key)},
@@ -422,8 +427,9 @@ defmodule Spectre.Prism.Adapter.ReqLLM do
   defp normalize_error(provider, %ReqLLM.Error.API.Response{}),
     do: Error.invalid_response(provider, :req_llm_response_error)
 
-  defp normalize_error(provider, %{class: class}) when class in [:invalid, :validation],
-    do: Error.configuration(provider, :req_llm_configuration_error)
+  defp normalize_error(provider, %{class: class})
+       when class in [:invalid, :validation, :unknown],
+       do: Error.configuration(provider, :req_llm_configuration_error)
 
   defp normalize_error(provider, _reason),
     do: Error.transport(provider, :req_llm_request_failed)
@@ -509,12 +515,43 @@ defmodule Spectre.Prism.Adapter.ReqLLM do
     end
   end
 
-  @spec normalize_timeout(keyword()) :: keyword()
-  defp normalize_timeout(opts) do
+  @spec normalize_timeout(keyword(), :generation) :: keyword()
+  defp normalize_timeout(opts, :generation) do
     case {Keyword.has_key?(opts, :receive_timeout), Keyword.pop(opts, :http_timeout)} do
       {true, {_http_timeout, opts}} -> opts
       {false, {nil, opts}} -> opts
       {false, {http_timeout, opts}} -> Keyword.put(opts, :receive_timeout, http_timeout)
+    end
+  end
+
+  @spec normalize_timeout(keyword(), :embedding) :: keyword()
+  defp normalize_timeout(opts, :embedding) do
+    {receive_timeout, opts} = Keyword.pop(opts, :receive_timeout)
+    {http_timeout, opts} = Keyword.pop(opts, :http_timeout)
+
+    case receive_timeout || http_timeout do
+      nil -> opts
+      timeout -> put_req_receive_timeout(opts, timeout)
+    end
+  end
+
+  defp put_req_receive_timeout(opts, timeout) do
+    case Keyword.get(opts, :req_http_options) do
+      nil ->
+        Keyword.put(opts, :req_http_options, receive_timeout: timeout)
+
+      http_opts when is_list(http_opts) ->
+        Keyword.put(
+          opts,
+          :req_http_options,
+          Keyword.put_new(http_opts, :receive_timeout, timeout)
+        )
+
+      http_opts when is_map(http_opts) ->
+        Keyword.put(opts, :req_http_options, Map.put_new(http_opts, :receive_timeout, timeout))
+
+      _invalid ->
+        opts
     end
   end
 

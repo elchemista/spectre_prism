@@ -240,6 +240,34 @@ defmodule Spectre.Prism.ReqLLMAdaptersTest do
     assert plan_opts[:system_prompt] == "system rules"
   end
 
+  test "ReqLLM boundaries strip Spectre metadata and normalize embedding timeouts" do
+    runtime_opts = [
+      req_llm_module: Client,
+      test_pid: self(),
+      api_key: "runtime-only",
+      operation_id: "operation-123",
+      app_name: "Host Application",
+      receive_timeout: 2_000
+    ]
+
+    assert {:ok, %Response{}} =
+             Anthropic.complete("hello", Keyword.put(runtime_opts, :model, "claude-sonnet-4-6"))
+
+    assert_receive {:req_llm_generate, _model, "hello", generation_opts}
+    assert generation_opts[:receive_timeout] == 2_000
+    refute Keyword.has_key?(generation_opts, :operation_id)
+    refute Keyword.has_key?(generation_opts, :app_name)
+
+    assert {:ok, [1.0, 2.0, 3.0]} =
+             Mistral.embed("embed me", Keyword.put(runtime_opts, :model, "mistral-embed"))
+
+    assert_receive {:req_llm_embed, _model, "embed me", embedding_opts}
+    assert embedding_opts[:req_http_options][:receive_timeout] == 2_000
+    refute Keyword.has_key?(embedding_opts, :receive_timeout)
+    refute Keyword.has_key?(embedding_opts, :operation_id)
+    refute Keyword.has_key?(embedding_opts, :app_name)
+  end
+
   test "ReqLLM failures are sanitized and preserve retry-relevant HTTP status" do
     upstream =
       ReqLLM.Error.API.Request.exception(
@@ -266,6 +294,22 @@ defmodule Spectre.Prism.ReqLLMAdaptersTest do
 
     refute inspect(error) =~ "private prompt"
     refute inspect(error) =~ "secret"
+  end
+
+  test "ReqLLM option validation failures are configuration errors" do
+    assert {:error,
+            %Error{
+              provider: :anthropic,
+              kind: :configuration,
+              code: :req_llm_configuration_error,
+              retryable?: false
+            }} =
+             Anthropic.complete("hello",
+               model: "claude-sonnet-4-6",
+               req_llm_module: Client,
+               test_pid: self(),
+               fake_error: %{class: :unknown}
+             )
   end
 
   test "Mistral delegates embeddings and publishes dimensions" do
