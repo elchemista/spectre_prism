@@ -199,6 +199,24 @@ defmodule Spectre.Prism.ReqLLMContractTest do
     end
   end
 
+  test "OpenRouter ignores Spectre runtime metadata and accepts one timeout for both operations" do
+    opts =
+      http_options() ++
+        [
+          operation_id: "operation-123",
+          app_name: "Spectre Studio",
+          receive_timeout: 2_000
+        ]
+
+    assert {:ok, %Response{text: "chat mock"}} = OpenRouter.complete("hello", opts)
+    assert_receive {:req_llm_http_request, :post, generation_url, _encoded_body}
+    assert URI.parse(generation_url).path == "/api/v1/chat/completions"
+
+    assert {:ok, [0.25, 0.75]} = OpenRouter.embed("hello", opts)
+    assert_receive {:req_llm_http_request, :post, embedding_url, _encoded_body}
+    assert URI.parse(embedding_url).path == "/api/v1/embeddings"
+  end
+
   defp http_options do
     [api_key: "mock-key", req_http_options: [adapter: HTTPMock]]
   end

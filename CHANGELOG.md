@@ -4,6 +4,13 @@ All notable changes to Spectre Prism are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Stopped Spectre runtime and host metadata from leaking into ReqLLM provider
+  calls, normalized embedding receive timeouts through `req_http_options`, and
+  classified ReqLLM option validation failures as non-retryable configuration
+  errors instead of transport outages.
+
 ### Changed
 
 - Unified OpenAI, Gemini, OpenRouter, and Ollama with the existing ReqLLM
