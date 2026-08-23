@@ -1,7 +1,7 @@
 defmodule SpectrePrism.MixProject do
   use Mix.Project
 
-  @version "0.3.2"
+  @version "0.1.0"
   @source_url "https://github.com/elchemista/spectre_prism"
 
   def project do
@@ -44,7 +44,7 @@ defmodule SpectrePrism.MixProject do
         {:spectre, path: Path.expand(path, __DIR__), override: true}
 
       _unset ->
-        {:spectre, "~> 0.3.2"}
+        {:spectre, "~> 0.3.3"}
     end
   end
 

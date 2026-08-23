@@ -17,7 +17,7 @@ The project is distributed from GitHub:
 ```elixir
 def deps do
   [
-    {:spectre, "~> 0.3.2"},
+    {:spectre, "~> 0.3.3"},
     {:spectre_prism, github: "elchemista/spectre_prism", branch: "main"}
   ]
 end
