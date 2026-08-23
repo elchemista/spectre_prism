@@ -6,6 +6,8 @@ All notable changes to Spectre Prism are documented in this file.
 
 ### Fixed
 
+- Restored the GitHub-only satellite package version to `0.1.0`, keeping
+  Prism's release line independent from the Spectre core version.
 - Stopped Spectre runtime and host metadata from leaking into ReqLLM provider
   calls, normalized embedding receive timeouts through `req_http_options`, and
   classified ReqLLM option validation failures as non-retryable configuration
