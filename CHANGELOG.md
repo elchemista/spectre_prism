@@ -6,6 +6,9 @@ All notable changes to Spectre Prism are documented in this file.
 
 ### Fixed
 
+- Kept the optional Bumblebee tensor normalizer free of compile-time calls to
+  `Nx`, so applications that do not install the optional local-model stack can
+  compile Prism with warnings treated as errors.
 - Restored the GitHub-only satellite package version to `0.1.0`, keeping
   Prism's release line independent from the Spectre core version.
 - Stopped Spectre runtime and host metadata from leaking into ReqLLM provider
