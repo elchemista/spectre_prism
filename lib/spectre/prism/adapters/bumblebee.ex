@@ -234,10 +234,10 @@ defmodule Spectre.Prism.Adapters.Bumblebee do
 
   defp embedding_vector(%{__struct__: Nx.Tensor} = tensor) do
     if Code.ensure_loaded?(Nx) and function_exported?(Nx, :to_flat_list, 1) do
-      nx_module = Nx
+      to_flat_list = Function.capture(Nx, :to_flat_list, 1)
 
       tensor
-      |> nx_module.to_flat_list()
+      |> to_flat_list.()
       |> embedding_vector()
     else
       {:error, Error.configuration(@provider, :nx_unavailable)}
