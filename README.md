@@ -353,3 +353,21 @@ end
 An `:agent_default` level is bound to the Agent's declared `model` while the
 immutable Prism profiles are compiled. The Agent must therefore declare that
 model before mounting Prism.
+
+## Spectre 0.4 AgentServer integration
+
+This branch carries forward the Stack/Inference integration from the compatible
+0.3 line into the Agent/Server architecture. Classification, embeddings, model
+selection and generation remain cognitive services; installing Prism does not
+introduce GAM consent for choosing or calling a model. The obsolete alternative
+0.4 Collection/RequestBuilder integration is not used on this branch.
+
+The normal Server `generate` and `classify` helpers use the installed Prism
+extension. For explicit selection introspection, the Stack generates
+`prism(ctx, {:select, %{purpose: :response_generation}}, on_result: :selected)`.
+The result is `{:selected, summary}` with level, request identity and selection
+reason; executable provider bindings, credentials and private metadata are not
+returned. Inputs may specify purpose, constraints and modalities, never a
+provider/model override. No `prism/3` function is imported from this package.
+
+Run `SPECTRE_PATH=../spectre mix test` against the core 0.4 working branch.

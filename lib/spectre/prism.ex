@@ -16,7 +16,7 @@ defmodule Spectre.Prism do
     id: :prism,
     version: @version,
     contract: 1,
-    spectre: "~> 0.3.3",
+    spectre: "~> 0.4.0",
     provides: [{:service, :prism}],
     agent_extensions: [Spectre.Prism.Extension],
     dsl: __MODULE__
@@ -26,6 +26,18 @@ defmodule Spectre.Prism do
   """
   @spec version() :: String.t()
   def version, do: @version
+
+  @impl Spectre.Stack.Installable
+  def tools(_config) do
+    %{
+      prism: %{
+        contract: 1,
+        adapter: Spectre.Prism.ServerTool,
+        default: :select,
+        operations: %{select: %{path: :cognitive, retry: :safe, max_bytes: 1_048_576}}
+      }
+    }
+  end
 
   defmacro __using__(opts) do
     quote do
