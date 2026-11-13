@@ -1,10 +1,27 @@
 defmodule Spectre.Prism do
   @moduledoc """
-  Per-inference cognitive capability router for Spectre Agents.
+  Per-inference capability routing for Spectre core 0.4 Agents.
 
-  The Stack install DSL remains available for package-level configuration.
-  `use Spectre.Prism` additionally mounts the Agent extension described by the
-  Prism concept without introducing another Agent compiler.
+  Install Prism in a `Spectre.Stack` to configure providers and profiles,
+  select that Stack on the Agent, and declare
+  `use Spectre.Server, tools: MyApp.AI` on its Server. The installation's
+  `tools/1` descriptor generates the private `prism/3` helper; it is not
+  imported from this module.
+
+  The helper selects a profile and returns a portable summary through
+  `handle_result/3`. It does not call a model or pin the next generation.
+  Generation independently selects a profile using its actual prompt and
+  constraints. Classification and embedding may use different profiles or
+  application-provided adapters.
+
+  Stack configuration and the direct adapter APIs remain available. Agent-local
+  `use Spectre.Prism` is retained as a compatibility extension. Start with the
+  README's Stack/Agent/Server example for the current integration.
+
+  Default profile selection is cognitive work, not a request for end-user
+  consent on each computation. The host still declares any governed disclosure
+  or resource boundary. See the
+  [Governed Act Model](https://spectre.guide/en/governed-act-model).
   """
 
   alias Spectre.Inference.Selection

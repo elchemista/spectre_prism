@@ -1,7 +1,8 @@
 # Spectre Prism public API — 0.1.0
 
 This file is the normative public API manifest for Spectre Prism `0.1.0`.
-Its package and Stack contracts target Spectre `0.3.3` from Hex.
+Its package and Stack contracts target unreleased Spectre core `~> 0.4.0`.
+Use the Git/path installation in the [README](../README.md).
 Compatibility guarantees
 apply only to the modules and callables listed below. Any module, function,
 macro, or callback not listed here is an implementation detail even when it is
@@ -15,7 +16,7 @@ type, and struct contract.
 ## Manifest
 
 - `Spectre.Prism`
-  - functions: `config/1`, `select/3`, `version/0`
+  - functions: `tools/1`, `config/1`, `select/3`, `version/0`
   - macros: `default/1`, `level/2`, `prism/1`, `provider/1`, `provider/2`, `provider/3`, `purpose/2`, `selector/1`, `selector/2`
 - `Spectre.Prism.Adapter`
   - callbacks: `catalog/0`
@@ -55,3 +56,10 @@ type, and struct contract.
 - `Spectre.Prism.Registry.Registration`
 - `Spectre.Prism.Selector.Adaptive`
 - `Spectre.Prism.Selector.Rules`
+
+## Core 0.4 Server tools
+
+The Stack Installable `tools/1` descriptor and generated Server helpers are
+documented in the [migration guide](MIGRATING_TO_SPECTRE_0_4.md). Native direct
+APIs keep their existing contracts; helper results are explicitly projected
+for durable Server use. See the [documentation index](INDEX.md).
