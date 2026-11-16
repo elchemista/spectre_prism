@@ -9,6 +9,7 @@ defmodule SpectrePrism.MixProject do
       app: :spectre_prism,
       name: "Spectre Prism",
       version: @version,
+      package: package(),
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -44,15 +45,37 @@ defmodule SpectrePrism.MixProject do
         {:spectre, path: Path.expand(path, __DIR__), override: true}
 
       _unset ->
-        {:spectre, "~> 0.3.3"}
+        {:spectre, "~> 0.4.0"}
     end
   end
 
   defp docs do
     [
+      assets: %{"docs/assets" => "docs/assets"},
       main: "readme",
-      source_ref: "v#{@version}",
-      extras: ["README.md", "docs/PUBLIC_API.md", "CHANGELOG.md", "LICENSE"]
+      source_ref: "feature/stack-tools-0.4",
+      extras: [
+        "README.md",
+        "docs/INDEX.md",
+        "docs/MIGRATING_TO_SPECTRE_0_4.md",
+        "docs/LEGACY_0_3.md",
+        "docs/PROVIDERS.md",
+        "docs/PUBLIC_API.md",
+        "CHANGELOG.md",
+        "LICENSE"
+      ]
+    ]
+  end
+
+  defp package do
+    [
+      licenses: ["Apache-2.0"],
+      links: %{
+        "GitHub" => @source_url,
+        "Documentation" => "#{@source_url}/blob/feature/stack-tools-0.4/README.md",
+        "Changelog" => "#{@source_url}/blob/feature/stack-tools-0.4/CHANGELOG.md"
+      },
+      files: ~w(lib docs mix.exs .formatter.exs README.md CHANGELOG.md LICENSE)
     ]
   end
 end

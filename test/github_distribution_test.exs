@@ -12,9 +12,11 @@ defmodule SpectrePrism.GitHubDistributionTest do
         assert opts[:override]
 
       _unset ->
-        assert {:spectre, "~> 0.3.3"} = dependency
+        assert {:spectre, "~> 0.4.0"} = dependency
     end
 
-    refute Keyword.has_key?(config, :package)
+    assert config[:package][:licenses] == ["Apache-2.0"]
+    assert "docs" in config[:package][:files]
+    refute "test" in config[:package][:files]
   end
 end
