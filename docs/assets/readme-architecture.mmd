@@ -1,0 +1,6 @@
+flowchart TB
+  S["AgentServer"] -->|"generate request"| P["Prism routing"]
+  P -->|"selected provider"| M["Model"]
+  M -->|"generated response"| S
+  S -. "prism: inspect selection" .-> P
+  P -. "profile summary only" .-> S
