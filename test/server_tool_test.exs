@@ -73,6 +73,27 @@ defmodule Spectre.Prism.ServerToolTest do
     assert {:ok, _} = Spectre.GAM.Canonical.Value.encode(selected)
   end
 
+  test "generated-helper argument lists preserve only the closed selection request" do
+    request = %{purpose: :response_generation, constraints: [], modalities: [:text]}
+    assert {:ok, ^request} = ServerTool.prepare(:select, [request], %{})
+
+    for payload <- [[], [request, request], %{}, %Spectre.Prompt.Plan{}, %{purpose: nil}] do
+      assert {:error, :invalid_prism_selection_request} =
+               ServerTool.prepare(:select, payload, %{})
+    end
+
+    assert {:error, :invalid_prism_selection_request} =
+             ServerTool.prepare(:execute, request, %{})
+  end
+
+  test "selection failures remain errors and malformed results are not projected as success" do
+    assert {:ok, {:error, :no_matching_profile}} =
+             ServerTool.project(:select, {:error, :no_matching_profile})
+
+    assert {:error, :invalid_prism_selection_result} = ServerTool.project(:select, :invalid)
+    assert {:error, :invalid_prism_selection_result} = ServerTool.project(:execute, {:ok, %{}})
+  end
+
   test "custom selectors receive route, memory and initialized state as in generation" do
     route = %Spectre.Route{label: :pricing, owner: ContextAgent, scope: :agent}
     memory = %{facts: ["already contacted"]}
