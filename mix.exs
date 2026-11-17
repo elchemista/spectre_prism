@@ -53,7 +53,7 @@ defmodule SpectrePrism.MixProject do
     [
       assets: %{"docs/assets" => "docs/assets"},
       main: "readme",
-      source_ref: "feature/stack-tools-0.4",
+      source_ref: @version,
       extras: [
         "README.md",
         "docs/INDEX.md",
@@ -72,8 +72,8 @@ defmodule SpectrePrism.MixProject do
       licenses: ["Apache-2.0"],
       links: %{
         "GitHub" => @source_url,
-        "Documentation" => "#{@source_url}/blob/feature/stack-tools-0.4/README.md",
-        "Changelog" => "#{@source_url}/blob/feature/stack-tools-0.4/CHANGELOG.md"
+        "Documentation" => "https://hexdocs.pm/spectre_prism/#{@version}",
+        "Changelog" => "#{@source_url}/blob/#{@version}/CHANGELOG.md"
       },
       files: ~w(lib docs mix.exs .formatter.exs README.md CHANGELOG.md LICENSE)
     ]
